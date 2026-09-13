@@ -8,7 +8,6 @@ namespace Pz.Connector.EventHubs;
 internal static class Codes
 {
     public const string InvalidConnection = "PZEH0101";
-    public const string ConnectionStringRefused = "PZEH0102";
     public const string InvalidDataset = "PZEH0201";
     public const string BadToken = "PZEH0202";
     public const string PositionLost = "PZEH0203";
@@ -34,7 +33,6 @@ internal static class EventHubsErrors
         EventHubsException eh => eh.IsTransient,
         AuthenticationFailedException or CredentialUnavailableException or UnauthorizedAccessException => false,
         TimeoutException or SocketException or IOException => true,
-        OperationCanceledException => true,
         _ => false,
     };
 

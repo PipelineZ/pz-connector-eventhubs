@@ -1,3 +1,4 @@
+using Azure.Identity;
 using Azure.Messaging.EventHubs;
 using Pz.Connectors.Abstractions;
 
@@ -44,5 +45,18 @@ public sealed class ErrorsTests
         var original = EventHubsErrors.Fatal(Codes.HubNotFound, "gone", EventHubsRedactor.None);
         Assert.Same(original, EventHubsErrors.Wrap(original, EventHubsRedactor.None, Codes.SendFailed, "x"));
         Assert.Equal("PZEH0204: eventhubs: gone", original.Message);
+    }
+
+    [Fact]
+    public void Cancellation_is_not_transient()
+    {
+        Assert.False(EventHubsErrors.IsTransient(new OperationCanceledException()));
+    }
+
+    [Fact]
+    public void Credential_failures_are_not_transient()
+    {
+        Assert.False(EventHubsErrors.IsTransient(new AuthenticationFailedException("bad credential")));
+        Assert.False(EventHubsErrors.IsTransient(new CredentialUnavailableException("no credential available")));
     }
 }

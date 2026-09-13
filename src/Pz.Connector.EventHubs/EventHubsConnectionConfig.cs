@@ -84,19 +84,19 @@ internal sealed record EventHubsConnectionConfig(
 
                 if (!string.IsNullOrEmpty(parsed.EventHubName))
                 {
-                    errors.Add($"{Codes.ConnectionStringRefused}: 'connection_string' carries an EntityPath; use a namespace-level " +
+                    errors.Add("'connection_string' carries an EntityPath; use a namespace-level " +
                                "connection string -- the event hub is the entity name in connections.yml");
                 }
 
                 host = parsed.Endpoint?.Host ?? "";
                 if (host.Length == 0)
                 {
-                    errors.Add($"{Codes.ConnectionStringRefused}: 'connection_string' has no Endpoint");
+                    errors.Add("'connection_string' has no Endpoint");
                 }
             }
             catch (Exception ex) when (ex is FormatException or ArgumentException)
             {
-                errors.Add($"{Codes.ConnectionStringRefused}: 'connection_string' is not an Event Hubs connection string " +
+                errors.Add("'connection_string' is not an Event Hubs connection string " +
                            "(expected Endpoint=sb://...;SharedAccessKeyName=...;SharedAccessKey=...)");
             }
         }
