@@ -159,7 +159,7 @@ internal sealed class EventHubsWriteSession : ISinkWriteSession
 
     private PzConnectorException TooLarge(int row, long maximumSizeInBytes) =>
         EventHubsErrors.Fatal(Codes.EventTooLarge,
-            $"{_context}: row {row} does not fit an empty batch ({maximumSizeInBytes} bytes); " +
+            $"{_context}: row {row} of the batch does not fit an empty batch ({maximumSizeInBytes} bytes); " +
             "shrink the body or the properties, or name a smaller `body:` column", _redactor);
 
     private PzConnectorException Classify(Exception ex, string what) =>
@@ -203,6 +203,22 @@ internal sealed class EventHubsWriteSession : ISinkWriteSession
         if (_aborted) throw new InvalidOperationException("the session is aborted");
     }
 
-    private static int IndexOf(Schema schema, string? column) =>
-        column is null ? -1 : schema.FieldsList.ToList().FindIndex(f => f.Name == column);
+    private static int IndexOf(Schema schema, string? column)
+    {
+        if (column is null)
+        {
+            return -1;
+        }
+
+        var fields = schema.FieldsList;
+        for (var i = 0; i < fields.Count; i++)
+        {
+            if (fields[i].Name == column)
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
 }

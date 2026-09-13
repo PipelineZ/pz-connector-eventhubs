@@ -87,7 +87,19 @@ internal sealed class EventHubsClientFactory : IEventHubsClientFactory
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(TimeSpan.FromSeconds(10));
-        await CreateCredential(connection).GetTokenAsync(new TokenRequestContext(TokenScopes), timeout.Token).ConfigureAwait(false);
+        try
+        {
+            await CreateCredential(connection).GetTokenAsync(new TokenRequestContext(TokenScopes), timeout.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            // The linked source fired, not the caller: a bare "the operation was canceled" would name
+            // neither the namespace nor the deadline that produced it.
+            throw EventHubsErrors.Fatal(Codes.InvalidConnection,
+                $"namespace '{connection.NamespaceHost}': no token for {TokenScopes[0]} within 10s; " +
+                "check the credential and the network path", connection.Redactor);
+        }
+
         return $"namespace {connection.NamespaceHost} (token acquired for {connection.Auth})";
     }
 

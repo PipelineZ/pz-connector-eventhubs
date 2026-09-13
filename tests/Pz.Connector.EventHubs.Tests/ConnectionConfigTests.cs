@@ -85,6 +85,22 @@ public sealed class ConnectionConfigTests
     }
 
     [Fact]
+    public void To_string_carries_no_secret()
+    {
+        var errors = new List<string>();
+        var c = Parse(errors, ("auth", "connection_string"), ("connection_string", Cs));
+        Assert.Equal("eventhubs(auth=connection_string, namespace=ns1.servicebus.windows.net)", c!.ToString());
+
+        var sp = Parse(errors, ("auth", "service_principal"), ("namespace", "n.servicebus.windows.net"), ("tenant_id", "t"),
+            ("client_id", "c"), ("client_secret", "verysecret1"));
+        Assert.Empty(errors);
+        var text = sp!.ToString();
+        Assert.Equal("eventhubs(auth=service_principal, namespace=n.servicebus.windows.net)", text);
+        Assert.DoesNotContain("verysecret1", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("abcDEF123ghi=", c.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Managed_identity_and_service_principal_parse()
     {
         var errors = new List<string>();

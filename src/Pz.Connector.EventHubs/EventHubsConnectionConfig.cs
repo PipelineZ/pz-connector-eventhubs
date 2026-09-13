@@ -33,6 +33,11 @@ internal sealed record EventHubsConnectionConfig(
     /// endpoint host otherwise. Safe to print -- it is never a secret.</summary>
     public string NamespaceHost { get; init; } = "";
 
+    /// <summary>The record's generated ToString prints every property, connection string and client
+    /// secret included; a config reaching a log line, an exception message or a debugger through it
+    /// would leak both. Only the two components that are never secret are printed.</summary>
+    public override string ToString() => $"eventhubs(auth={Auth}, namespace={NamespaceHost})";
+
     public static EventHubsConnectionConfig? Parse(Pz.Connectors.Abstractions.ConnectorConfig config, List<string> errors)
     {
         var start = errors.Count;

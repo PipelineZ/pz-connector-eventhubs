@@ -47,28 +47,7 @@ internal sealed record EventHubsOutputConfig(
         var partitionKey = Name(spec, "partition_key", prefix, errors);
         var body = Name(spec, "body", prefix, errors);
 
-        var properties = new List<string>();
-        if (spec.Options.TryGetValue("properties", out var propertiesRaw) && propertiesRaw is not null)
-        {
-            if (propertiesRaw is IEnumerable<object?> list && propertiesRaw is not string)
-            {
-                foreach (var item in list)
-                {
-                    if (item?.ToString() is { Length: > 0 } name)
-                    {
-                        properties.Add(name);
-                    }
-                    else
-                    {
-                        errors.Add($"{prefix}: 'properties' entries must be non-empty column names");
-                    }
-                }
-            }
-            else
-            {
-                errors.Add($"{prefix}: 'properties' must be a list of column names");
-            }
-        }
+        var properties = Options.Strings(spec.Options, "properties", prefix, errors) ?? [];
 
         string? contentType = null;
         if (spec.Options.TryGetValue("content_type", out var contentTypeRaw) && contentTypeRaw is not null)
