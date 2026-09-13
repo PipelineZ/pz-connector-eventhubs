@@ -53,6 +53,26 @@ public sealed class ConnectorTests
     }
 
     [Fact]
+    public async Task Check_connection_propagates_cancellation_when_the_token_is_cancelled()
+    {
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var factory = new FakeClientFactory { Probe = _ => throw new OperationCanceledException() };
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new EventHubsConnector(null, factory).CheckConnectionAsync(
+            new ConnectorConfig(new Dictionary<string, object?> { ["auth"] = "connection_string", ["connection_string"] = Cs }), cts.Token).AsTask());
+    }
+
+    [Fact]
+    public async Task Check_connection_reports_a_cancellation_on_a_live_token_as_a_failed_probe()
+    {
+        var factory = new FakeClientFactory { Probe = _ => throw new OperationCanceledException() };
+        var check = await new EventHubsConnector(null, factory).CheckConnectionAsync(
+            new ConnectorConfig(new Dictionary<string, object?> { ["auth"] = "connection_string", ["connection_string"] = Cs }), CancellationToken.None);
+        Assert.False(check.Ok);
+        Assert.StartsWith("PZEH0101:", check.Message);
+    }
+
+    [Fact]
     public async Task Real_factory_probe_for_a_connection_string_is_offline()
     {
         var errors = new List<string>();

@@ -105,16 +105,21 @@ internal sealed class EventHubsClientFactory : IEventHubsClientFactory
     {
         private readonly EventHubsConnectionConfig _connection;
         private readonly string _eventHub;
+        private readonly TokenCredential? _credential;
         private readonly EventHubConsumerClient _client;
 
         public Reader(EventHubsConnectionConfig connection, string eventHub)
         {
             _connection = connection;
             _eventHub = eventHub;
+            // Built once and reused by every PartitionReceiver this reader opens: a reader that
+            // opened N partitions and rebuilt the credential each time would mint N+1 credentials
+            // for the same identity, for no benefit.
+            _credential = connection.Auth == "connection_string" ? null : CreateCredential(connection);
             var options = new EventHubConsumerClientOptions { ConnectionOptions = { TransportType = connection.Transport } };
-            _client = connection.Auth == "connection_string"
+            _client = _credential is null
                 ? new EventHubConsumerClient(connection.ConsumerGroup, connection.ConnectionString, eventHub, options)
-                : new EventHubConsumerClient(connection.ConsumerGroup, connection.Namespace, eventHub, CreateCredential(connection), options);
+                : new EventHubConsumerClient(connection.ConsumerGroup, connection.Namespace, eventHub, _credential, options);
         }
 
         public async Task<IReadOnlyList<string>> GetPartitionIdsAsync(CancellationToken ct) =>
@@ -136,9 +141,9 @@ internal sealed class EventHubsClientFactory : IEventHubsClientFactory
                 ConnectionOptions = { TransportType = _connection.Transport },
                 TrackLastEnqueuedEventProperties = false,
             };
-            var receiver = _connection.Auth == "connection_string"
+            var receiver = _credential is null
                 ? new PartitionReceiver(_connection.ConsumerGroup, partitionId, position, _connection.ConnectionString, _eventHub, options)
-                : new PartitionReceiver(_connection.ConsumerGroup, partitionId, position, _connection.Namespace, _eventHub, CreateCredential(_connection), options);
+                : new PartitionReceiver(_connection.ConsumerGroup, partitionId, position, _connection.Namespace, _eventHub, _credential, options);
             return new PartitionReaderImpl(receiver);
         }
 
