@@ -20,7 +20,9 @@ internal sealed class EnvelopeBatchBuilder
         new Field("event_hub", StringType.Default, nullable: false),
         new Field("partition", StringType.Default, nullable: false),
         new Field("sequence_number", Int64Type.Default, nullable: false),
-        new Field("offset", StringType.Default, nullable: false),
+        // The offset is what the service reports for the event and it does not promise one: a null
+        // lands as null, never as an empty string, which would read as a real position.
+        new Field("offset", StringType.Default, nullable: true),
         new Field("enqueued_time", new TimestampType(TimeUnit.Microsecond, "UTC"), nullable: false),
         new Field("partition_key", StringType.Default, nullable: true),
         new Field("body", StringType.Default, nullable: false),

@@ -75,7 +75,7 @@ Every event lands as one row:
 | `event_hub` | varchar | the resolved event hub name |
 | `partition` | varchar | partition ids are strings (`0`, `1`, ...) |
 | `sequence_number` | bigint | |
-| `offset` | varchar | the service's offset for the event |
+| `offset` | varchar, nullable | the service's offset for the event, when it reports one |
 | `enqueued_time` | timestamp (UTC) | |
 | `partition_key` | varchar, nullable | |
 | `body` | varchar | text, or base64 of the raw bytes with `encoding: base64`; `''` for an empty body |
@@ -90,6 +90,12 @@ Decode in SQL: `json_extract_string(body, '$.customer')`, `json_extract_string(p
 `start:` applies only to a partition with no stored sequence number: the first run,
 `pz run --full-refresh`, or a partition added since the token was written. It never re-applies to a
 partition the connector has already recorded, even one that has never held an event.
+
+The token records the namespace and the event hub the numbers came from. Pointing the connection at
+a different namespace, or the dataset at a different event hub, fails the run (`PZEH0202`) instead of
+resuming against numbers that mean something else there -- sequence numbers are assigned per
+partition of one hub in one namespace. Start over with `pz run --full-refresh`, or point the
+connection back where the token was written.
 
 A stored sequence number that retention has already dropped fails the run (`PZEH0203`,
 non-transient) rather than skipping events, naming the partition, the stored number and the
@@ -111,7 +117,7 @@ an earlier run already delivered.
         event_hub: order-events              # optional; defaults to the entity name
         strategy: append                     # the only strategy event hubs support
         body: payload                        # optional varchar column sent verbatim; omit for whole-row JSON
-        partition_key: order_id              # optional column (varchar, integer, or bigint)
+        partition_key: region                # optional column (varchar, integer, or bigint)
         properties: [source, schema_version] # optional columns sent as application properties
         content_type: application/json       # optional
 ```
@@ -122,9 +128,9 @@ value), booleans, dates as `yyyy-MM-dd`, timestamps as `yyyy-MM-ddTHH:mm:ss.ffff
 `null`. A column of any other type is refused when the write starts, before an event is sent,
 naming the column (`PZEH0302`): name a `body:` column, or drop it from the pipeline's projection.
 The key and the properties are therefore not repeated inside the body; to have a column in both
-places, project it twice under two names and point `partition_key:` at the copy. With `body:`,
-that column is the body verbatim and nothing is excluded from anything -- a `partition_key:` or
-`properties:` column is also still part of the body if the pipeline projects it.
+places, project it twice under two names and point `partition_key:` at the copy. With `body:` set,
+the event body is that column and nothing else: no JSON object is built, so the exclusion rule does
+not apply and a `partition_key:` or `properties:` column changes nothing about what is sent.
 
 Application properties keep their type across the wire: varchar stays a string, integer and bigint
 arrive as a 64-bit integer, double as a double, boolean as a boolean, and date and timestamp as
@@ -133,12 +139,16 @@ event rather than sent as a null; a null `partition_key` value sends the event w
 key, letting the service place it.
 
 Rows with the same partition key travel in the same batch and land on the same partition, in the
-order the pipeline produced them. Every send is awaited before `WriteBatchAsync` returns, so
+order the pipeline produced them. Batching is therefore per distinct key value per pipeline batch: a
+low-cardinality key (a region, a tenant, a shard) packs many rows into each send, while a key that is
+close to unique per row -- an order id, a uuid -- costs one send per row and is much slower. Omit
+`partition_key:` for maximum throughput when placement does not matter: every row then travels in the
+service-placed batches, which is the cheapest shape. Every send is awaited before `WriteBatchAsync` returns, so
 nothing is outstanding when a batch is acknowledged. Delivery across runs is at-least-once, as for
 every `append` output, and a sent event cannot be unsent: a failed run's events stay in the hub.
 
 A single row whose event exceeds the service's per-batch size limit (~1 MB) fails the write
-(`PZEH0303`), naming the row index -- no partial batch is silently dropped. The event hub must
+(`PZEH0303`), naming the row's position in the batch -- no partial batch is silently dropped. The event hub must
 already exist; a send to an unknown one fails with `PZEH0204` where the service reports it
 missing -- the local emulator answers a missing hub with a transient communication failure instead,
 which surfaces as `PZEH0304` on a write and `PZEH0207` on a read.

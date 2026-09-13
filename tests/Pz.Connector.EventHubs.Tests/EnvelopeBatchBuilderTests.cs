@@ -18,6 +18,17 @@ public sealed class EnvelopeBatchBuilderTests
     }
 
     [Fact]
+    public void Offset_is_nullable_and_a_missing_one_lands_as_null()
+    {
+        Assert.True(EnvelopeBatchBuilder.Schema.GetFieldByName("offset").IsNullable);
+
+        var b = new EnvelopeBatchBuilder(PayloadEncoding.Utf8, new BatchOptions(), EventHubsRedactor.None);
+        b.Append("h", "0", Ev(1, "x"u8.ToArray()) with { Offset = null });
+        using var batch = b.Flush()!;
+        Assert.True(((StringArray)batch.Column(3)).IsNull(0));
+    }
+
+    [Fact]
     public void Utf8_body_lands_as_text_and_empty_body_as_empty_string()
     {
         var b = new EnvelopeBatchBuilder(PayloadEncoding.Utf8, new BatchOptions(), EventHubsRedactor.None);

@@ -9,7 +9,7 @@ namespace Pz.Connector.EventHubs;
 
 internal sealed record PartitionInfo(string PartitionId, bool IsEmpty, long BeginningSequenceNumber, long LastEnqueuedSequenceNumber);
 
-internal sealed record ReceivedEvent(long SequenceNumber, string Offset, DateTimeOffset EnqueuedTime, string? PartitionKey,
+internal sealed record ReceivedEvent(long SequenceNumber, string? Offset, DateTimeOffset EnqueuedTime, string? PartitionKey,
     byte[] Body, string? ContentType, IReadOnlyList<KeyValuePair<string, object?>> Properties);
 
 internal sealed record OutgoingEvent(byte[] Body, string? ContentType, string? PartitionKey, IReadOnlyList<KeyValuePair<string, object>> Properties);
