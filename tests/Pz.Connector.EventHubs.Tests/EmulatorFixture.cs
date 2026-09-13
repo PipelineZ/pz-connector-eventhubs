@@ -29,6 +29,12 @@ public sealed class EmulatorFixture : IAsyncLifetime
     /// <summary>Consecutive MaximumWaitTime expiries that end a partition read.</summary>
     private const int SilencesBeforeDrained = 3;
 
+    /// <summary>Both images are pinned: these facts assert emulator-specific behaviour -- the
+    /// ten-entity ceiling the pool budget is cut to, and the shape of the error a missing entity
+    /// produces -- so a version move has to be a deliberate edit with the facts re-read, never
+    /// whatever :latest resolved to on the day CI ran.</summary>
+    private const string EmulatorImage = "mcr.microsoft.com/azure-messaging/eventhubs-emulator:2.2.1";
+
     private EventHubsContainer? _container;
     private int _leased;
 
@@ -61,7 +67,7 @@ public sealed class EmulatorFixture : IAsyncLifetime
         // constructor argument because the parameterless builder is retired in Testcontainers 4.15.
         // The module brings its own Azurite, already serving blob, queue and table: the emulator's
         // MetadataStore health check fails against a blob-only one and the container exits.
-        _container = new EventHubsBuilder("mcr.microsoft.com/azure-messaging/eventhubs-emulator:latest")
+        _container = new EventHubsBuilder(EmulatorImage)
             .WithAcceptLicenseAgreement(true)
             .WithConfigurationBuilder(configuration)
             .Build();

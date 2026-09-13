@@ -1,3 +1,4 @@
+using Azure.Messaging.EventHubs;
 using Pz.Connector.EventHubs.Tests.Fakes;
 using Pz.Connectors.Abstractions;
 
@@ -14,11 +15,16 @@ public sealed class SourceTests
     /// <see cref="ISourceConnector"/> surface -- so the ctor/config wiring in
     /// <c>EventHubsConnector.OpenAsync</c> is exercised, not just <see cref="EventHubsSource"/> in
     /// isolation.</summary>
-    private static async Task<ISource> OpenSourceAsync(FakeClientFactory factory)
+    private static async Task<ISource> OpenSourceAsync(FakeClientFactory factory, params (string Key, object? Value)[] connection)
     {
-        var config = new ConnectorConfig(new Dictionary<string, object?> { ["auth"] = "connection_string", ["connection_string"] = Cs });
+        var values = new Dictionary<string, object?> { ["auth"] = "connection_string", ["connection_string"] = Cs };
+        foreach (var (key, value) in connection)
+        {
+            values[key] = value;
+        }
+
         ISourceConnector connector = new EventHubsConnector(null, factory);
-        return await connector.OpenAsync(config, CancellationToken.None);
+        return await connector.OpenAsync(new ConnectorConfig(values), CancellationToken.None);
     }
 
     private static async Task<int> CountRowsAsync(IDatasetPartition partition)
@@ -88,6 +94,22 @@ public sealed class SourceTests
         var partition = Assert.Single(partitions);
 
         Assert.Equal(5, await CountRowsAsync(partition));
+    }
+
+    [Fact]
+    public async Task Connection_options_reach_the_client_factory()
+    {
+        // The consumer group and the transport only ever act inside the SDK clients the factory
+        // builds, so the connection the factory is handed is the last place they can be observed.
+        var factory = new FakeClientFactory { Hubs = { ["h"] = HubWith(("0", 1)) } };
+        var source = await OpenSourceAsync(factory, ("consumer_group", "cg"), ("transport", "amqp_websockets"));
+        var partitions = await source.PlanReadAsync(Spec(), new ReadHints(), CancellationToken.None);
+
+        await CountRowsAsync(Assert.Single(partitions));
+
+        Assert.NotNull(factory.LastReaderConfig);
+        Assert.Equal("cg", factory.LastReaderConfig!.ConsumerGroup);
+        Assert.Equal(EventHubsTransportType.AmqpWebSockets, factory.LastReaderConfig.Transport);
     }
 
     private static FakeHub HubWith(params (string PartitionId, int Count)[] partitions)

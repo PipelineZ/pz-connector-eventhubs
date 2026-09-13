@@ -1,5 +1,6 @@
 using Apache.Arrow;
 using Apache.Arrow.Types;
+using Azure.Messaging.EventHubs;
 using Pz.Connector.EventHubs.Tests.Fakes;
 using Pz.Connectors.Abstractions;
 
@@ -21,10 +22,30 @@ public sealed class SinkTests
     private static OutputSpec Spec(string mode = "append", Dictionary<string, object?>? options = null) =>
         new("eventhubs", "h", mode, "fail_on_change", options ?? []);
 
-    private static async Task<ISink> OpenSinkAsync(FakeClientFactory factory)
+    private static async Task<ISink> OpenSinkAsync(FakeClientFactory factory, params (string Key, object? Value)[] connection)
     {
-        var config = new ConnectorConfig(new Dictionary<string, object?> { ["auth"] = "connection_string", ["connection_string"] = Cs });
-        return await ((ISinkConnector)new EventHubsConnector(null, factory)).OpenAsync(config, CancellationToken.None);
+        var values = new Dictionary<string, object?> { ["auth"] = "connection_string", ["connection_string"] = Cs };
+        foreach (var (key, value) in connection)
+        {
+            values[key] = value;
+        }
+
+        return await ((ISinkConnector)new EventHubsConnector(null, factory)).OpenAsync(new ConnectorConfig(values), CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task Connection_options_reach_the_client_factory()
+    {
+        // Same reason as the source's fact: the producer client the factory builds is where the
+        // transport is applied, so the connection it receives is the only observable point.
+        var factory = new FakeClientFactory { Hubs = { ["h"] = new FakeHub() } };
+        var sink = await OpenSinkAsync(factory, ("consumer_group", "cg"), ("transport", "amqp_websockets"));
+
+        await using var session = await sink.BeginWriteAsync(Spec(), Schema, CancellationToken.None);
+
+        Assert.NotNull(factory.LastWriterConfig);
+        Assert.Equal("cg", factory.LastWriterConfig!.ConsumerGroup);
+        Assert.Equal(EventHubsTransportType.AmqpWebSockets, factory.LastWriterConfig.Transport);
     }
 
     [Fact]

@@ -9,15 +9,30 @@ internal sealed class FakeClientFactory : IEventHubsClientFactory
 
     public Func<EventHubsConnectionConfig, string>? Probe { get; set; }
 
+    /// <summary>The connection the last reader/writer was built from: what the factory receives is
+    /// the only place a connection-level option (the consumer group, the transport) can be observed,
+    /// since the SDK clients they configure are not built here.</summary>
+    public EventHubsConnectionConfig? LastReaderConfig { get; private set; }
+
+    public EventHubsConnectionConfig? LastWriterConfig { get; private set; }
+
     // The lookup is deferred to first use (not done here): a real reader's construction never
     // touches the network, so a fake standing in for it must not throw ResourceNotFound until a
     // caller actually asks the hub something, matching where that error surfaces in production.
-    public IEventHubReader CreateReader(EventHubsConnectionConfig connection, string eventHub) => new FakeReader(this, eventHub);
+    public IEventHubReader CreateReader(EventHubsConnectionConfig connection, string eventHub)
+    {
+        LastReaderConfig = connection;
+        return new FakeReader(this, eventHub);
+    }
 
     // Same deferral as CreateReader: a real producer client's constructor never contacts the
     // service either, so an unregistered hub must not surface until the fake writer is actually
     // asked to create a batch or send one.
-    public IEventHubWriter CreateWriter(EventHubsConnectionConfig connection, string eventHub) => new FakeWriter(this, eventHub);
+    public IEventHubWriter CreateWriter(EventHubsConnectionConfig connection, string eventHub)
+    {
+        LastWriterConfig = connection;
+        return new FakeWriter(this, eventHub);
+    }
 
     public Task<string> ProbeAsync(EventHubsConnectionConfig connection, CancellationToken ct) =>
         Task.FromResult(Probe is null ? "ok" : Probe(connection));
@@ -174,12 +189,25 @@ internal sealed class FakeBatch(string? partitionKey, long maxBatchBytes) : IEve
 
     public List<OutgoingEvent> Events { get; } = [];
 
-    public int Count => Events.Count;
+    /// <summary>The real SDK batch is a native handle: using one after Dispose is undefined. The
+    /// fake throws instead, so a session that disposed a batch before it was done with it fails
+    /// here rather than passing on a fake and misbehaving against the service.</summary>
+    public bool Disposed { get; private set; }
+
+    public int Count
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(Disposed, this);
+            return Events.Count;
+        }
+    }
 
     public long MaximumSizeInBytes => maxBatchBytes;
 
     public bool TryAdd(OutgoingEvent e)
     {
+        ObjectDisposedException.ThrowIf(Disposed, this);
         var size = e.Body.Length + PerEventOverheadBytes;
         foreach (var kv in e.Properties)
         {
@@ -200,7 +228,5 @@ internal sealed class FakeBatch(string? partitionKey, long maxBatchBytes) : IEve
         return true;
     }
 
-    public void Dispose()
-    {
-    }
+    public void Dispose() => Disposed = true;
 }
