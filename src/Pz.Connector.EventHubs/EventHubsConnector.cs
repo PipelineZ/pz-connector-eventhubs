@@ -78,7 +78,8 @@ public sealed class EventHubsConnector : IConnector, ISourceConnector, ISinkConn
         }
     }
 
-    ValueTask<ISource> ISourceConnector.OpenAsync(ConnectorConfig config, CancellationToken ct) => throw new NotImplementedException();
+    ValueTask<ISource> ISourceConnector.OpenAsync(ConnectorConfig config, CancellationToken ct) =>
+        ValueTask.FromResult<ISource>(new EventHubsSource(ParseOrThrow(config), _factory, _loggerFactory.CreateLogger<EventHubsSource>()));
 
     ValueTask<ISink> ISinkConnector.OpenAsync(ConnectorConfig config, CancellationToken ct) => throw new NotImplementedException();
 

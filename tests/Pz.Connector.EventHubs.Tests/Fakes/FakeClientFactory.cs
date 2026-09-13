@@ -9,14 +9,17 @@ internal sealed class FakeClientFactory : IEventHubsClientFactory
 
     public Func<EventHubsConnectionConfig, string>? Probe { get; set; }
 
-    public IEventHubReader CreateReader(EventHubsConnectionConfig connection, string eventHub) => new FakeReader(Get(eventHub));
+    // The lookup is deferred to first use (not done here): a real reader's construction never
+    // touches the network, so a fake standing in for it must not throw ResourceNotFound until a
+    // caller actually asks the hub something, matching where that error surfaces in production.
+    public IEventHubReader CreateReader(EventHubsConnectionConfig connection, string eventHub) => new FakeReader(this, eventHub);
 
     public IEventHubWriter CreateWriter(EventHubsConnectionConfig connection, string eventHub) => new FakeWriter(Get(eventHub));
 
     public Task<string> ProbeAsync(EventHubsConnectionConfig connection, CancellationToken ct) =>
         Task.FromResult(Probe is null ? "ok" : Probe(connection));
 
-    private FakeHub Get(string eventHub) => Hubs.TryGetValue(eventHub, out var hub)
+    internal FakeHub Get(string eventHub) => Hubs.TryGetValue(eventHub, out var hub)
         ? hub
         : throw new Azure.Messaging.EventHubs.EventHubsException(eventHub, $"'{eventHub}' not found",
             Azure.Messaging.EventHubs.EventHubsException.FailureReason.ResourceNotFound);
@@ -45,10 +48,12 @@ internal sealed class FakeHub
     public int DisposedReaders;
 }
 
-internal sealed class FakeReader(FakeHub hub) : IEventHubReader
+internal sealed class FakeReader(FakeClientFactory factory, string eventHub) : IEventHubReader
 {
+    private FakeHub Hub => factory.Get(eventHub);
+
     public Task<IReadOnlyList<string>> GetPartitionIdsAsync(CancellationToken ct) =>
-        Task.FromResult<IReadOnlyList<string>>(hub.Partitions.Keys.ToList());
+        Task.FromResult<IReadOnlyList<string>>(Hub.Partitions.Keys.ToList());
 
     public Task<PartitionInfo> GetPartitionPropertiesAsync(string partitionId, CancellationToken ct)
     {
@@ -60,6 +65,7 @@ internal sealed class FakeReader(FakeHub hub) : IEventHubReader
 
     public IPartitionReader OpenPartition(string partitionId, StartAt start)
     {
+        var hub = Hub;
         hub.OpenedReaders++;
         return new FakePartitionReader(hub, partitionId, start);
     }
@@ -67,7 +73,7 @@ internal sealed class FakeReader(FakeHub hub) : IEventHubReader
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     private List<ReceivedEvent> Events(string partitionId) =>
-        hub.Partitions.TryGetValue(partitionId, out var list) ? list : [];
+        Hub.Partitions.TryGetValue(partitionId, out var list) ? list : [];
 }
 
 internal sealed class FakePartitionReader : IPartitionReader

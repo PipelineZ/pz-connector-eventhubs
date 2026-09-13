@@ -14,6 +14,7 @@ internal static class Codes
     public const string HubNotFound = "PZEH0204";
     public const string BodyNotUtf8 = "PZEH0205";
     public const string IdleTimeout = "PZEH0206";
+    public const string ReceiveFailed = "PZEH0207";
     public const string InvalidOutput = "PZEH0301";
     public const string ColumnRefused = "PZEH0302";
     public const string EventTooLarge = "PZEH0303";
