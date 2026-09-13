@@ -87,19 +87,20 @@ internal sealed class EventHubsWriteSession : ISinkWriteSession
                 {
                     if (open.Count == 0)
                     {
-                        throw EventHubsErrors.Fatal(Codes.EventTooLarge,
-                            $"{_context}: row {row} does not fit an empty batch ({open.MaximumSizeInBytes} bytes); " +
-                            "shrink the body or the properties, or name a smaller `body:` column", _redactor);
+                        throw TooLarge(row, open.MaximumSizeInBytes);
                     }
 
                     await SendAsync(open, ct).ConfigureAwait(false);
+                    // Create the replacement before disposing the sent one: if CreateBatchAsync
+                    // throws, `open` is still the (already sent, not yet disposed) batch the
+                    // `finally` below must clean up -- reassigning `open` only after this succeeds
+                    // means a throw here can never leave `open` pointing at an already-disposed batch.
+                    var next = await CreateBatchAsync(key, ct).ConfigureAwait(false);
                     open.Dispose();
-                    open = await CreateBatchAsync(key, ct).ConfigureAwait(false);
+                    open = next;
                     if (!open.TryAdd(e))
                     {
-                        throw EventHubsErrors.Fatal(Codes.EventTooLarge,
-                            $"{_context}: row {row} does not fit an empty batch ({open.MaximumSizeInBytes} bytes); " +
-                            "shrink the body or the properties, or name a smaller `body:` column", _redactor);
+                        throw TooLarge(row, open.MaximumSizeInBytes);
                     }
                 }
 
@@ -155,6 +156,11 @@ internal sealed class EventHubsWriteSession : ISinkWriteSession
             throw Classify(ex, "sending");
         }
     }
+
+    private PzConnectorException TooLarge(int row, long maximumSizeInBytes) =>
+        EventHubsErrors.Fatal(Codes.EventTooLarge,
+            $"{_context}: row {row} does not fit an empty batch ({maximumSizeInBytes} bytes); " +
+            "shrink the body or the properties, or name a smaller `body:` column", _redactor);
 
     private PzConnectorException Classify(Exception ex, string what) =>
         ex is Azure.Messaging.EventHubs.EventHubsException { Reason: Azure.Messaging.EventHubs.EventHubsException.FailureReason.ResourceNotFound }

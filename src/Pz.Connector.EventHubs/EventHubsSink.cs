@@ -1,6 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
 using Apache.Arrow;
-using Azure.Messaging.EventHubs;
 using Microsoft.Extensions.Logging;
 using Pz.Connectors.Abstractions;
 
@@ -44,18 +43,18 @@ internal sealed class EventHubsSink(EventHubsConnectionConfig connection, IEvent
         }
         catch (Exception ex) when (ex is not PzConnectorException and not OperationCanceledException)
         {
-            throw Classify(ex, output.EventHub);
+            // The client's constructor never contacts the service -- it only builds local state
+            // (credential, transport options) -- so a failure here is a configuration or credential
+            // problem, never the transient kind a retry could fix. A missing event hub can only be
+            // discovered once a batch is actually created or sent; that classification lives in
+            // EventHubsWriteSession.Classify, not here.
+            throw EventHubsErrors.Fatal(Codes.InvalidConnection,
+                $"event hub '{output.EventHub}': building the writer: {ex.Message}", connection.Redactor);
         }
 
         return ValueTask.FromResult<ISinkWriteSession>(
             new EventHubsWriteSession(writer, output, schema, connection.NamespaceHost, connection.Redactor, logger));
     }
-
-    private PzConnectorException Classify(Exception ex, string eventHub) =>
-        ex is EventHubsException { Reason: EventHubsException.FailureReason.ResourceNotFound }
-            ? EventHubsErrors.Fatal(Codes.HubNotFound,
-                $"event hub '{eventHub}' in namespace '{connection.NamespaceHost}' does not exist; create it first", connection.Redactor)
-            : EventHubsErrors.Wrap(ex, connection.Redactor, Codes.HubNotFound, $"event hub '{eventHub}': building the writer");
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }

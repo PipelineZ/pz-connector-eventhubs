@@ -14,7 +14,10 @@ internal sealed class FakeClientFactory : IEventHubsClientFactory
     // caller actually asks the hub something, matching where that error surfaces in production.
     public IEventHubReader CreateReader(EventHubsConnectionConfig connection, string eventHub) => new FakeReader(this, eventHub);
 
-    public IEventHubWriter CreateWriter(EventHubsConnectionConfig connection, string eventHub) => new FakeWriter(Get(eventHub));
+    // Same deferral as CreateReader: a real producer client's constructor never contacts the
+    // service either, so an unregistered hub must not surface until the fake writer is actually
+    // asked to create a batch or send one.
+    public IEventHubWriter CreateWriter(EventHubsConnectionConfig connection, string eventHub) => new FakeWriter(this, eventHub);
 
     public Task<string> ProbeAsync(EventHubsConnectionConfig connection, CancellationToken ct) =>
         Task.FromResult(Probe is null ? "ok" : Probe(connection));
@@ -117,13 +120,24 @@ internal sealed class FakePartitionReader : IPartitionReader
     }
 }
 
-internal sealed class FakeWriter(FakeHub hub) : IEventHubWriter
+internal sealed class FakeWriter : IEventHubWriter
 {
+    private readonly Func<FakeHub> _hub;
+
+    /// <summary>Direct construction against an already-resolved hub, for tests exercising the
+    /// session's own logic without going through a factory.</summary>
+    public FakeWriter(FakeHub hub) => _hub = () => hub;
+
+    /// <summary>Deferred resolution, matching <see cref="FakeClientFactory.CreateWriter"/>: the hub
+    /// is looked up on first use, not at construction, so an unregistered hub surfaces exactly where
+    /// production does -- at the first batch, not at BeginWriteAsync.</summary>
+    public FakeWriter(FakeClientFactory factory, string eventHub) => _hub = () => factory.Get(eventHub);
+
     /// <summary>When set, <see cref="SendAsync"/> throws this instead of recording the send.</summary>
     public Exception? FailSend { get; set; }
 
     public Task<IEventBatch> CreateBatchAsync(string? partitionKey, CancellationToken ct) =>
-        Task.FromResult<IEventBatch>(new FakeBatch(partitionKey, hub.MaxBatchBytes));
+        Task.FromResult<IEventBatch>(new FakeBatch(partitionKey, _hub().MaxBatchBytes));
 
     public Task SendAsync(IEventBatch batch, CancellationToken ct)
     {
@@ -133,7 +147,7 @@ internal sealed class FakeWriter(FakeHub hub) : IEventHubWriter
         }
 
         var fake = (FakeBatch)batch;
-        hub.Sent.Add((fake.PartitionKey, fake.Events));
+        _hub().Sent.Add((fake.PartitionKey, fake.Events));
         return Task.CompletedTask;
     }
 

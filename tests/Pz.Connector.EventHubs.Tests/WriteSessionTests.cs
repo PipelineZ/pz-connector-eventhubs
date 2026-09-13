@@ -135,7 +135,7 @@ public sealed class WriteSessionTests
     {
         var hub = new FakeHub();
         var writer = new FakeWriter(hub);
-        var session = Session(writer);
+        var session = Session(writer, body: "name");
 
         using (var batch = Batch((0, "n0", null, null)))
         {
@@ -143,6 +143,11 @@ public sealed class WriteSessionTests
         }
 
         await session.AbortAsync(CancellationToken.None);
+
+        // AbortSemantics.None: the row already handed to the service before the abort stays sent --
+        // abort only refuses further work, it never unsends what already went out.
+        var sent = Assert.Single(hub.Sent);
+        Assert.Equal(["n0"], sent.Events.Select(e => Encoding.UTF8.GetString(e.Body)));
 
         await Assert.ThrowsAsync<InvalidOperationException>(async () => await session.CommitAsync(CancellationToken.None));
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
@@ -172,18 +177,40 @@ public sealed class WriteSessionTests
     }
 
     [Fact]
-    public async Task Unknown_hub_at_begin_write_is_PZEH0204()
+    public async Task Send_failure_with_resource_not_found_is_PZEH0204_non_transient()
+    {
+        var hub = new FakeHub();
+        var writer = new FakeWriter(hub) { FailSend = new EventHubsException("h", "gone", EventHubsException.FailureReason.ResourceNotFound) };
+        await using var session = Session(writer);
+
+        using var batch = Batch((0, "n0", null, null));
+        var ex = await Assert.ThrowsAsync<PzConnectorException>(async () => await session.WriteBatchAsync(batch, CancellationToken.None));
+
+        Assert.StartsWith("PZEH0204:", ex.Message);
+        Assert.False(ex.IsTransient);
+        Assert.Contains("create it first", ex.Message);
+    }
+
+    /// <summary>An unregistered hub is a service fact, not a config fact: the client's constructor
+    /// (real or fake) never contacts the service, so BeginWriteAsync succeeds regardless -- the
+    /// failure can only surface once a batch is actually created or sent.</summary>
+    [Fact]
+    public async Task Unknown_hub_fails_the_first_write_batch_not_begin_write()
     {
         var factory = new FakeClientFactory();
         var connection = EventHubsConnector.ParseOrThrow(
             new ConnectorConfig(new Dictionary<string, object?> { ["auth"] = "connection_string", ["connection_string"] = Cs }));
         var sink = new EventHubsSink(connection, factory, NullLogger.Instance);
 
-        var ex = await Assert.ThrowsAsync<PzConnectorException>(async () =>
-            await sink.BeginWriteAsync(new OutputSpec("eventhubs", "h", "append", "fail_on_change", new Dictionary<string, object?>()),
-                Schema, CancellationToken.None));
+        await using var session = await sink.BeginWriteAsync(
+            new OutputSpec("eventhubs", "h", "append", "fail_on_change", new Dictionary<string, object?>()), Schema, CancellationToken.None);
+
+        using var batch = Batch((0, "n0", null, null));
+        var ex = await Assert.ThrowsAsync<PzConnectorException>(async () => await session.WriteBatchAsync(batch, CancellationToken.None));
 
         Assert.StartsWith("PZEH0204:", ex.Message);
+        Assert.False(ex.IsTransient);
+        Assert.Contains("create it first", ex.Message);
     }
 
     private static EventHubsWriteSession Session(FakeHub hub, string? partitionKey = null, string? body = null, IReadOnlyList<string>? properties = null) =>

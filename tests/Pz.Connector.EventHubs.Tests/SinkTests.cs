@@ -57,14 +57,7 @@ public sealed class SinkTests
         Assert.Contains("append-only", ex.Message);
     }
 
-    [Fact]
-    public async Task Unknown_hub_is_a_named_config_error()
-    {
-        var sink = await OpenSinkAsync(new FakeClientFactory());
-
-        var ex = await Assert.ThrowsAsync<PzConnectorException>(() =>
-            sink.BeginWriteAsync(Spec(), Schema, CancellationToken.None).AsTask());
-
-        Assert.StartsWith("PZEH0204:", ex.Message);
-    }
+    // An unregistered hub is not a config error the sink can see at BeginWriteAsync (writer
+    // construction never contacts the service): see WriteSessionTests.
+    // Unknown_hub_fails_the_first_write_batch_not_begin_write for that path.
 }
