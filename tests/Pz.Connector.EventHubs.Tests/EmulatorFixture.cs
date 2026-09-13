@@ -11,10 +11,11 @@ namespace Pz.Connector.EventHubs.Tests;
 public sealed class EventHubsCollection : ICollectionFixture<EmulatorFixture>;
 
 /// <summary>One emulator (plus the Azurite it needs) per test run. The emulator cannot create
-/// entities after it starts, so every hub a fact may need is declared up front and leased one per
-/// fact; a fact never sees another fact's events. Helpers talk to the emulator with the SDK's own
-/// clients, deliberately not through the connector: a fact that used the code under test to seed
-/// and verify would prove nothing.</summary>
+/// entities after it starts, so every hub is declared up front; a fact that needs a hub to itself
+/// leases one, and the rest share a hub and read past everything already in it from a position
+/// <see cref="CaptureNextAsync"/> took before they seeded. Helpers talk to the emulator with the
+/// SDK's own clients, deliberately not through the connector: a fact that used the code under test
+/// to seed and verify would prove nothing.</summary>
 public sealed class EmulatorFixture : IAsyncLifetime
 {
     public const string SmallHub = "small";
@@ -76,11 +77,16 @@ public sealed class EmulatorFixture : IAsyncLifetime
 
     /// <summary>The next unused hub from the pre-declared pool. Leases are handed out for the life of
     /// the run and never returned: an event hub cannot be emptied, so a reused hub would hand the next
-    /// fact the previous one's events.</summary>
+    /// fact the previous one's events. The suites spend all eight, so the remedy for exhaustion is not
+    /// a bigger pool -- the ten-entity ceiling is already reached -- but a fact that shares a hub.</summary>
     public string LeaseHub()
     {
         var index = Interlocked.Increment(ref _leased) - 1;
-        return index < PoolSize ? PoolName(index) : throw new InvalidOperationException("hub pool exhausted; raise PoolSize");
+        return index < PoolSize
+            ? PoolName(index)
+            : throw new InvalidOperationException(
+                "hub pool exhausted; the namespace is at its ten-entity ceiling, so share a hub instead: " +
+                "capture the hub's position with CaptureNextAsync and read with it as the prior sync state");
     }
 
     public Dictionary<string, object?> ConnectionConfig() =>
@@ -189,6 +195,23 @@ public sealed class EmulatorFixture : IAsyncLifetime
         }
 
         return collected.OrderBy(e => e.Partition).ThenBy(e => e.Data.SequenceNumber).Select(e => e.Data).ToList();
+    }
+
+    /// <summary>Per partition, the sequence number a reader must begin at to see only what is sent
+    /// after this call returns: one past the last enqueued, or 0 for a partition nothing was ever
+    /// written to. A fact turns this into a prior sync-state token, which is how several facts share
+    /// one hub -- the namespace admits ten entities in total, far fewer than one per fact.</summary>
+    public async Task<Dictionary<string, long>> CaptureNextAsync(string hub)
+    {
+        var next = new Dictionary<string, long>(StringComparer.Ordinal);
+        foreach (var (id, properties) in await PropertiesAsync(hub).ConfigureAwait(false))
+        {
+            // A partition that never held an event reports last = -1; the clamp keeps the position a
+            // token may carry, which is never negative.
+            next[id] = Math.Max(0, properties.LastEnqueuedSequenceNumber + 1);
+        }
+
+        return next;
     }
 
     public async Task<Dictionary<string, PartitionProperties>> PropertiesAsync(string hub)
