@@ -110,6 +110,7 @@ internal sealed class EventHubsPartition(
                     if (builder.TryTakeBatch(out var batch))
                     {
                         yield return batch!;
+                        ct.ThrowIfCancellationRequested();
                         // The idle clock measures service silence, not engine backpressure on the batch just handed over.
                         lastEvent = _time.GetTimestamp();
                     }
@@ -126,6 +127,7 @@ internal sealed class EventHubsPartition(
         if (builder.Flush() is { } last)
         {
             yield return last;
+            ct.ThrowIfCancellationRequested();
         }
 
         _candidate = new SequenceToken(hub, plans.ToDictionary(p => p.PartitionId, p => p.Next)).Serialize();

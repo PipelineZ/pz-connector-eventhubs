@@ -83,19 +83,19 @@ public sealed class PartitionLoopTests
         var factory = new FakeClientFactory();
         var hub = Hub(("0", Enumerable.Range(0, 10).Select(i => (long)i)));
         factory.Hubs["h"] = hub;
-        var appended = false;
+        var first = true;
         hub.OnReceive = (_, events) =>
         {
-            if (!appended)
+            if (!first)
             {
-                appended = true;
-                // Simulates a producer landing more events while this run is already mid-read: the
-                // plan's bound was fixed before this point, so these must never be landed this run.
-                hub.Partitions["0"].Add(Ev(10));
-                hub.Partitions["0"].Add(Ev(11));
+                return events;
             }
 
-            return events;
+            first = false;
+            // Events 10/11 arrive in the SAME received batch as 0..9 -- the plan's bound (fixed at
+            // plan time, before any receive) is what must stop the loop landing them, not the
+            // partition simply running out of events to receive.
+            return [.. events, Ev(10), Ev(11)];
         };
         var partition = Partition(factory);
 
@@ -181,6 +181,26 @@ public sealed class PartitionLoopTests
         Assert.True(ex.IsTransient);
         Assert.Contains("PZEH0206", ex.Message);
         Assert.Contains("no event arrived for 2s", ex.Message);
+        Assert.Contains("partition 0", ex.Message);
+        Assert.Contains("sequence number 9", ex.Message);
+        Assert.False(partition.TryGetSyncStateCandidate(out var candidate));
+        Assert.Null(candidate);
+    }
+
+    [Fact]
+    public async Task Receive_failure_is_wrapped_transient_and_leaves_no_candidate()
+    {
+        var factory = new FakeClientFactory();
+        var hub = Hub(("0", Enumerable.Range(0, 10).Select(i => (long)i)));
+        factory.Hubs["h"] = hub;
+        hub.OnReceive = (_, _) =>
+            throw new Azure.Messaging.EventHubs.EventHubsException("h", "busy", Azure.Messaging.EventHubs.EventHubsException.FailureReason.ServiceBusy);
+        var partition = Partition(factory);
+
+        var ex = await Assert.ThrowsAsync<PzConnectorException>(() => DrainAsync(partition));
+
+        Assert.True(ex.IsTransient);
+        Assert.StartsWith("PZEH0207", ex.Message);
         Assert.False(partition.TryGetSyncStateCandidate(out var candidate));
         Assert.Null(candidate);
     }
