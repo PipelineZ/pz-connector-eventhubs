@@ -86,4 +86,11 @@ public sealed class ReadPlanTests
         var plan = ReadPlan.Compute("h", null, Earliest, [P("10", true, -1, -1), P("2", true, -1, -1), P("0", true, -1, -1)], EventHubsRedactor.None);
         Assert.Equal(["0", "2", "10"], plan.Select(p => p.PartitionId));
     }
+
+    [Fact]
+    public void Non_numeric_ids_fall_back_to_ordinal_order()
+    {
+        var plan = ReadPlan.Compute("h", null, Earliest, [P("b", true, -1, -1), P("a", true, -1, -1), P("10", true, -1, -1)], EventHubsRedactor.None);
+        Assert.Equal(["10", "a", "b"], plan.Select(p => p.PartitionId));
+    }
 }

@@ -51,10 +51,14 @@ internal sealed record SequenceToken(string EventHub, IReadOnlyDictionary<string
         using (document)
         {
             var root = document.RootElement;
-            if (root.ValueKind != JsonValueKind.Object
-                || !root.TryGetProperty("v", out var v) || !v.TryGetInt32(out var version))
+            if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("v", out var v))
             {
                 throw Malformed(redactor, "missing version");
+            }
+
+            if (!v.TryGetInt32(out var version))
+            {
+                throw Malformed(redactor, "version is not an integer");
             }
 
             if (version != Version)
@@ -91,11 +95,5 @@ internal sealed record SequenceToken(string EventHub, IReadOnlyDictionary<string
         }
     }
 
-    private static IEnumerable<string> Ordered(IEnumerable<string> keys)
-    {
-        var all = keys.ToArray();
-        return all.All(k => int.TryParse(k, out _))
-            ? all.OrderBy(k => int.Parse(k, System.Globalization.CultureInfo.InvariantCulture))
-            : all.OrderBy(k => k, StringComparer.Ordinal);
-    }
+    private static IEnumerable<string> Ordered(IEnumerable<string> keys) => PartitionIds.Order(keys, k => k);
 }

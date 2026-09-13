@@ -66,7 +66,5 @@ internal static class ReadPlan
     }
 
     public static IEnumerable<PartitionInfo> Ordered(IReadOnlyList<PartitionInfo> partitions) =>
-        partitions.All(p => int.TryParse(p.PartitionId, out _))
-            ? partitions.OrderBy(p => int.Parse(p.PartitionId, System.Globalization.CultureInfo.InvariantCulture))
-            : partitions.OrderBy(p => p.PartitionId, StringComparer.Ordinal);
+        PartitionIds.Order(partitions, p => p.PartitionId);
 }
