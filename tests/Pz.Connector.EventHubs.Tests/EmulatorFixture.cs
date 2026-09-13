@@ -34,6 +34,10 @@ public sealed class EmulatorFixture : IAsyncLifetime
 
     public string ConnectionString { get; private set; } = "";
 
+    /// <summary>The namespace host the connector derives from the same connection string, which is
+    /// what a sync-state token carries.</summary>
+    public string NamespaceHost => EventHubsConnectionStringProperties.Parse(ConnectionString).Endpoint?.Host ?? "";
+
     public async Task InitializeAsync()
     {
         if (!DockerFacts.IsAvailable)

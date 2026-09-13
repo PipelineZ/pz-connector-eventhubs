@@ -74,7 +74,7 @@ public sealed class PartitionLoopTests
         Assert.Equal(Enumerable.Range(0, 10).Select(i => ("0", (long)i)), rows.Take(10));
         Assert.Equal(Enumerable.Range(0, 5).Select(i => ("1", (long)i)), rows.Skip(10));
         Assert.True(partition.TryGetSyncStateCandidate(out var candidate));
-        Assert.Equal("""{"v":1,"event_hub":"h","partitions":{"0":10,"1":5}}""", candidate);
+        Assert.Equal("""{"v":1,"namespace":"localhost","event_hub":"h","partitions":{"0":10,"1":5}}""", candidate);
     }
 
     [Fact]
@@ -103,7 +103,7 @@ public sealed class PartitionLoopTests
 
         Assert.Equal(10, rows.Count);
         Assert.True(partition.TryGetSyncStateCandidate(out var candidate));
-        Assert.Equal("""{"v":1,"event_hub":"h","partitions":{"0":10}}""", candidate);
+        Assert.Equal("""{"v":1,"namespace":"localhost","event_hub":"h","partitions":{"0":10}}""", candidate);
     }
 
     [Fact]
@@ -112,14 +112,14 @@ public sealed class PartitionLoopTests
         var factory = new FakeClientFactory();
         factory.Hubs["h"] = Hub(("0", Enumerable.Range(0, 10).Select(i => (long)i)), ("1", Enumerable.Range(0, 5).Select(i => (long)i)));
 
-        var firstToken = new SequenceToken("h", new Dictionary<string, long> { ["0"] = 5, ["1"] = 5 });
+        var firstToken = new SequenceToken("localhost", "h", new Dictionary<string, long> { ["0"] = 5, ["1"] = 5 });
         var first = Partition(factory, firstToken);
         var firstRows = await DrainAsync(first);
         Assert.Equal(Enumerable.Range(5, 5).Select(i => ("0", (long)i)), firstRows);
         Assert.True(first.TryGetSyncStateCandidate(out var firstCandidate));
-        Assert.Equal("""{"v":1,"event_hub":"h","partitions":{"0":10,"1":5}}""", firstCandidate);
+        Assert.Equal("""{"v":1,"namespace":"localhost","event_hub":"h","partitions":{"0":10,"1":5}}""", firstCandidate);
 
-        var secondToken = new SequenceToken("h", new Dictionary<string, long> { ["0"] = 10, ["1"] = 5 });
+        var secondToken = new SequenceToken("localhost", "h", new Dictionary<string, long> { ["0"] = 10, ["1"] = 5 });
         var second = Partition(factory, secondToken);
         var secondRows = await DrainAsync(second);
         Assert.Empty(secondRows);
@@ -224,7 +224,7 @@ public sealed class PartitionLoopTests
     {
         var factory = new FakeClientFactory();
         factory.Hubs["h"] = Hub(("0", Enumerable.Range(100, 10).Select(i => (long)i)));
-        var token = new SequenceToken("h", new Dictionary<string, long> { ["0"] = 0 });
+        var token = new SequenceToken("localhost", "h", new Dictionary<string, long> { ["0"] = 0 });
         var partition = Partition(factory, token);
 
         var ex = await Assert.ThrowsAsync<PzConnectorException>(() => DrainAsync(partition));

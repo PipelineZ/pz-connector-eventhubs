@@ -5,10 +5,13 @@ using Pz.Connectors.Abstractions;
 namespace Pz.Connector.EventHubs;
 
 /// <summary>The dataset's sync-state token: the next sequence number to read per partition of one
-/// event hub. Written with stable key order so the engine's stored state is byte-stable across runs
-/// that changed nothing. Parsing never places the token text in an error: it is engine-opaque state
-/// and must not surface in run artifacts.</summary>
-internal sealed record SequenceToken(string EventHub, IReadOnlyDictionary<string, long> Next)
+/// event hub in one namespace. Written with stable key order so the engine's stored state is
+/// byte-stable across runs that changed nothing. The namespace is part of the token because
+/// sequence numbers are only meaningful inside the namespace that issued them: the same hub name in
+/// another namespace numbers its partitions independently, so resuming there would silently skip or
+/// re-read events. Parsing never places the token text in an error: it is engine-opaque state and
+/// must not surface in run artifacts.</summary>
+internal sealed record SequenceToken(string Namespace, string EventHub, IReadOnlyDictionary<string, long> Next)
 {
     public const int Version = 1;
 
@@ -19,6 +22,7 @@ internal sealed record SequenceToken(string EventHub, IReadOnlyDictionary<string
         {
             writer.WriteStartObject();
             writer.WriteNumber("v", Version);
+            writer.WriteString("namespace", Namespace);
             writer.WriteString("event_hub", EventHub);
             writer.WriteStartObject("partitions");
             foreach (var partition in Ordered(Next.Keys))
@@ -33,7 +37,7 @@ internal sealed record SequenceToken(string EventHub, IReadOnlyDictionary<string
         return Encoding.UTF8.GetString(buffer.ToArray());
     }
 
-    public static SequenceToken Parse(string json, string expectedEventHub, EventHubsRedactor redactor)
+    public static SequenceToken Parse(string json, string expectedNamespace, string expectedEventHub, EventHubsRedactor redactor)
     {
         static PzConnectorException Malformed(EventHubsRedactor redactor, string why) => EventHubsErrors.Fatal(Codes.BadToken,
             $"stored sync state is not an eventhubs sequence token ({why}); run with --full-refresh or clear the dataset's state with `pz state`", redactor);
@@ -66,10 +70,23 @@ internal sealed record SequenceToken(string EventHub, IReadOnlyDictionary<string
                 throw Malformed(redactor, $"version {version}, expected {Version}");
             }
 
+            if (!root.TryGetProperty("namespace", out var namespaceElement) || namespaceElement.ValueKind != JsonValueKind.String)
+            {
+                throw Malformed(redactor, "missing namespace");
+            }
+
             if (!root.TryGetProperty("event_hub", out var eventHubElement) || eventHubElement.ValueKind != JsonValueKind.String
                 || !root.TryGetProperty("partitions", out var partitions) || partitions.ValueKind != JsonValueKind.Object)
             {
                 throw Malformed(redactor, "missing event_hub or partitions");
+            }
+
+            var ns = namespaceElement.GetString()!;
+            if (!string.Equals(ns, expectedNamespace, StringComparison.Ordinal))
+            {
+                throw EventHubsErrors.Fatal(Codes.BadToken,
+                    $"stored sync state belongs to namespace '{ns}' but the connection now points at '{expectedNamespace}'; " +
+                    "run with --full-refresh to start over, or point the connection back at the original namespace", redactor);
             }
 
             var eventHub = eventHubElement.GetString()!;
@@ -91,7 +108,7 @@ internal sealed record SequenceToken(string EventHub, IReadOnlyDictionary<string
                 next[property.Name] = sequence;
             }
 
-            return new SequenceToken(eventHub, next);
+            return new SequenceToken(ns, eventHub, next);
         }
     }
 

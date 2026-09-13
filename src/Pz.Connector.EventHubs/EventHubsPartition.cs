@@ -130,6 +130,6 @@ internal sealed class EventHubsPartition(
             ct.ThrowIfCancellationRequested();
         }
 
-        _candidate = new SequenceToken(hub, plans.ToDictionary(p => p.PartitionId, p => p.Next)).Serialize();
+        _candidate = new SequenceToken(connection.NamespaceHost, hub, plans.ToDictionary(p => p.PartitionId, p => p.Next)).Serialize();
     }
 }

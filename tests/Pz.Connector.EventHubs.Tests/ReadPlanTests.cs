@@ -8,7 +8,7 @@ public sealed class ReadPlanTests
     private static readonly StartPosition Earliest = new(StartKind.Earliest, null);
     private static readonly StartPosition Latest = new(StartKind.Latest, null);
     private static readonly StartPosition At = new(StartKind.Timestamp, new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
-    private static SequenceToken T(params (string, long)[] e) => new("h", e.ToDictionary(x => x.Item1, x => x.Item2));
+    private static SequenceToken T(params (string, long)[] e) => new("ns", "h", e.ToDictionary(x => x.Item1, x => x.Item2));
 
     [Fact]
     public void First_run_earliest_reads_begin_to_last()

@@ -82,7 +82,7 @@ public sealed class SourceTests
     {
         var factory = new FakeClientFactory { Hubs = { ["h"] = HubWith(("0", 10)) } };
         var source = await OpenSourceAsync(factory);
-        var token = new SequenceToken("h", new Dictionary<string, long> { ["0"] = 5 }).Serialize();
+        var token = new SequenceToken("localhost", "h", new Dictionary<string, long> { ["0"] = 5 }).Serialize();
 
         var partitions = await source.PlanReadAsync(Spec(priorSyncState: token), new ReadHints(), CancellationToken.None);
         var partition = Assert.Single(partitions);

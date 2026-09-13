@@ -29,7 +29,7 @@ internal sealed class EventHubsSource(EventHubsConnectionConfig connection, IEve
     {
         var dataset = ParseDataset(spec);
         var token = spec.PriorSyncState is { Length: > 0 } prior
-            ? SequenceToken.Parse(prior, dataset.EventHub, connection.Redactor)
+            ? SequenceToken.Parse(prior, connection.NamespaceHost, dataset.EventHub, connection.Redactor)
             : null;
         IReadOnlyList<IDatasetPartition> partitions = [new EventHubsPartition(connection, factory, dataset, token, logger)];
         return ValueTask.FromResult(partitions);

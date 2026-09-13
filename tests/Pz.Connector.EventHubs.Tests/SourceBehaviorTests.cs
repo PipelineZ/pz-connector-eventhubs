@@ -62,7 +62,7 @@ public sealed class SourceBehaviorTests
         }
 
         Assert.NotNull(token);
-        var parsed = SequenceToken.Parse(token!, hub, EventHubsRedactor.None);
+        var parsed = SequenceToken.Parse(token!, _emulator.NamespaceHost, hub, EventHubsRedactor.None);
         Assert.Equal(["0", "1"], parsed.Next.Keys.OrderBy(k => k, StringComparer.Ordinal));
 
         // Every landed event moved exactly one partition's resume position, so the token as a whole
@@ -89,8 +89,8 @@ public sealed class SourceBehaviorTests
         Assert.Equal(5, later.Count);
         Assert.All(later, r => Assert.StartsWith("second-later-", r.Body, StringComparison.Ordinal));
         Assert.NotNull(second);
-        var before = SequenceToken.Parse(first!, hub, EventHubsRedactor.None);
-        var after = SequenceToken.Parse(second!, hub, EventHubsRedactor.None);
+        var before = SequenceToken.Parse(first!, _emulator.NamespaceHost, hub, EventHubsRedactor.None);
+        var after = SequenceToken.Parse(second!, _emulator.NamespaceHost, hub, EventHubsRedactor.None);
         Assert.Equal(5, after.Next.Values.Sum() - before.Next.Values.Sum());
         Assert.All(after.Next, entry => Assert.True(entry.Value >= before.Next[entry.Key],
             $"partition {entry.Key} went backwards: {before.Next[entry.Key]} -> {entry.Value}"));
@@ -131,7 +131,7 @@ public sealed class SourceBehaviorTests
 
         Assert.Empty(skipped);
         Assert.NotNull(token);
-        var parsed = SequenceToken.Parse(token!, hub, EventHubsRedactor.None);
+        var parsed = SequenceToken.Parse(token!, _emulator.NamespaceHost, hub, EventHubsRedactor.None);
         foreach (var (id, properties) in await _emulator.PropertiesAsync(hub))
         {
             Assert.Equal(properties.LastEnqueuedSequenceNumber + 1, parsed.Next[id]);
@@ -161,7 +161,7 @@ public sealed class SourceBehaviorTests
         // Nothing was read, and the engine still has something to store: without a token a hub that
         // stays quiet would be re-planned from `start:` on every run.
         Assert.NotNull(token);
-        var parsed = SequenceToken.Parse(token!, hub, EventHubsRedactor.None);
+        var parsed = SequenceToken.Parse(token!, _emulator.NamespaceHost, hub, EventHubsRedactor.None);
         Assert.Equal(2, parsed.Next.Count);
         Assert.Equal(0, parsed.Next["0"]);
         Assert.Equal(0, parsed.Next["1"]);
@@ -171,7 +171,7 @@ public sealed class SourceBehaviorTests
     public async Task Token_for_another_hub_is_refused()
     {
         DockerFacts.SkipUnlessDocker();
-        var foreign = new SequenceToken("some-other-hub", new Dictionary<string, long> { ["0"] = 0, ["1"] = 0 }).Serialize();
+        var foreign = new SequenceToken(_emulator.NamespaceHost, "some-other-hub", new Dictionary<string, long> { ["0"] = 0, ["1"] = 0 }).Serialize();
 
         var ex = await Assert.ThrowsAsync<PzConnectorException>(
             async () => await ReadAsync(EmulatorFixture.SmallHub, [], foreign));
@@ -323,8 +323,8 @@ public sealed class SourceBehaviorTests
     /// <summary>The prior sync state a fact hands the connector so it lands only what it sent: the
     /// hub's per-partition next-sequence map, captured before the seed, in the connector's own token
     /// shape.</summary>
-    private static string Token(string hub, IReadOnlyDictionary<string, long> next) =>
-        new SequenceToken(hub, next).Serialize();
+    private string Token(string hub, IReadOnlyDictionary<string, long> next) =>
+        new SequenceToken(_emulator.NamespaceHost, hub, next).Serialize();
 
     private static void Collect(List<Row> rows, RecordBatch batch)
     {

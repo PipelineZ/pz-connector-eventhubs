@@ -78,7 +78,7 @@ public sealed class SourceAcceptance : SourceConnectorAcceptanceTests
         // The token is the hub's own arithmetic, read back from the emulator rather than from the
         // connector: every partition resumes one past what the service reports as last enqueued,
         // including the partition no event ever landed on (last -1, so the resume position is 0).
-        var parsed = SequenceToken.Parse(resumedToken!, hub, EventHubsRedactor.None);
+        var parsed = SequenceToken.Parse(resumedToken!, _emulator.NamespaceHost, hub, EventHubsRedactor.None);
         foreach (var (id, partitionProperties) in await _emulator.PropertiesAsync(hub))
         {
             Assert.Equal(partitionProperties.LastEnqueuedSequenceNumber + 1, parsed.Next[id]);
