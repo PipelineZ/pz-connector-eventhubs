@@ -35,11 +35,6 @@ internal sealed class EnvelopeBatchBuilder
     private readonly EventHubsRedactor _redactor;
     private readonly object?[] _row = new object?[Schema.FieldsList.Count];
 
-    // A completed batch is rotated in here the moment Append crosses the row cap, so a caller
-    // that appends several rows before its next TryTakeBatch still sees the split at the
-    // configured boundary rather than one oversized batch on its next poll.
-    private readonly Queue<RecordBatch> _ready = new();
-
     public EnvelopeBatchBuilder(PayloadEncoding encoding, BatchOptions options, EventHubsRedactor redactor)
     {
         _inner = new ArrowBatchBuilder(Schema, options.TargetBatchBytes, maxRowsPerBatch: options.MaxRowsPerBatch);
@@ -49,6 +44,11 @@ internal sealed class EnvelopeBatchBuilder
 
     public int PendingRows => _inner.PendingRows;
 
+    // The row cap is enforced by the inner builder and only observed when the caller polls
+    // TryTakeBatch -- a batch is never held here, since a RecordBatch owns pooled native buffers
+    // that only the caller's dispose (via the engine) can release; queuing one behind this class
+    // would put buffers out of the engine's sight. Callers must poll TryTakeBatch after every
+    // Append for the split to land at the configured row/byte boundary rather than only at Flush.
     public void Append(string eventHub, string partition, ReceivedEvent e)
     {
         _row[0] = eventHub;
@@ -61,24 +61,11 @@ internal sealed class EnvelopeBatchBuilder
         _row[7] = PropertiesToJson(e.Properties);
         _row[8] = e.ContentType;
         _inner.AppendRow(_row);
-        if (_inner.TryTakeBatch(out var batch))
-        {
-            _ready.Enqueue(batch!);
-        }
     }
 
-    public bool TryTakeBatch(out RecordBatch? batch)
-    {
-        if (_ready.TryDequeue(out var queued))
-        {
-            batch = queued;
-            return true;
-        }
+    public bool TryTakeBatch(out RecordBatch? batch) => _inner.TryTakeBatch(out batch);
 
-        return _inner.TryTakeBatch(out batch);
-    }
-
-    public RecordBatch? Flush() => _ready.TryDequeue(out var queued) ? queued : _inner.Flush();
+    public RecordBatch? Flush() => _inner.Flush();
 
     public static string PropertiesToJson(IReadOnlyList<KeyValuePair<string, object?>> properties)
     {

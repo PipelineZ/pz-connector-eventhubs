@@ -71,11 +71,18 @@ public sealed class EnvelopeBatchBuilderTests
     public void Batches_split_at_max_rows()
     {
         var b = new EnvelopeBatchBuilder(PayloadEncoding.Utf8, new BatchOptions(MaxRowsPerBatch: 2), EventHubsRedactor.None);
-        for (var i = 0; i < 3; i++) b.Append("h", "0", Ev(i, "x"u8.ToArray()));
+
+        b.Append("h", "0", Ev(0, "x"u8.ToArray()));
+        Assert.False(b.TryTakeBatch(out _));
+
+        b.Append("h", "0", Ev(1, "x"u8.ToArray()));
         Assert.True(b.TryTakeBatch(out var first));
         Assert.Equal(2, first!.Length);
         first.Dispose();
+
+        b.Append("h", "0", Ev(2, "x"u8.ToArray()));
         Assert.False(b.TryTakeBatch(out _));
+
         using var rest = b.Flush()!;
         Assert.Equal(1, rest.Length);
     }
