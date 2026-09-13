@@ -77,8 +77,10 @@ public sealed class EmulatorFixture : IAsyncLifetime
 
     /// <summary>The next unused hub from the pre-declared pool. Leases are handed out for the life of
     /// the run and never returned: an event hub cannot be emptied, so a reused hub would hand the next
-    /// fact the previous one's events. The suites spend all eight, so the remedy for exhaustion is not
-    /// a bigger pool -- the ten-entity ceiling is already reached -- but a fact that shares a hub.</summary>
+    /// fact the previous one's events. The remedy for exhaustion is not a bigger pool -- the
+    /// ten-entity ceiling is already reached -- but a suite that shares one hub: capture the hub's
+    /// position with <see cref="CaptureNextAsync"/> and read back with <see cref="ReadSinceAsync"/>,
+    /// which confines every fact to its own events on a single lease.</summary>
     public string LeaseHub()
     {
         var index = Interlocked.Increment(ref _leased) - 1;
@@ -154,10 +156,27 @@ public sealed class EmulatorFixture : IAsyncLifetime
     /// <summary>Everything currently in the hub, all partitions, ordered by (partition, sequence
     /// number). Each partition stops at its last enqueued sequence number, which is read before the
     /// enumeration starts: a hub's read is otherwise endless, since nothing marks the end of a feed.</summary>
-    public async Task<List<EventData>> ReadAllAsync(string hub)
+    public async Task<List<EventData>> ReadAllAsync(string hub) =>
+        (await ReadCoreAsync(hub, null).ConfigureAwait(false)).Select(e => e.Data).ToList();
+
+    /// <summary>What the hub holds at or after <paramref name="next"/>, a map
+    /// <see cref="CaptureNextAsync"/> took before the caller seeded: the read-back half of sharing one
+    /// hub between facts. A partition whose last enqueued sequence number is still below its captured
+    /// position held nothing new and is skipped, so a caller that wrote to one partition never waits
+    /// out a drain of the others.</summary>
+    public async Task<List<EventData>> ReadSinceAsync(string hub, IReadOnlyDictionary<string, long> next) =>
+        (await ReadCoreAsync(hub, next).ConfigureAwait(false)).Select(e => e.Data).ToList();
+
+    /// <summary>The same read, each event paired with the partition it landed on: the placement a
+    /// partition key decides is not carried by the event itself, so a fact about placement can only
+    /// learn it from the partition it was read out of.</summary>
+    public Task<List<(string Partition, EventData Data)>> ReadSinceByPartitionAsync(
+        string hub, IReadOnlyDictionary<string, long> next) => ReadCoreAsync(hub, next);
+
+    private async Task<List<(string Partition, EventData Data)>> ReadCoreAsync(string hub, IReadOnlyDictionary<string, long>? next)
     {
         await using var consumer = new EventHubConsumerClient(EventHubConsumerClient.DefaultConsumerGroupName, ConnectionString, hub);
-        var collected = new List<(int Partition, EventData Data)>();
+        var collected = new List<(string Id, int Partition, EventData Data)>();
         foreach (var id in await consumer.GetPartitionIdsAsync().ConfigureAwait(false))
         {
             var properties = await consumer.GetPartitionPropertiesAsync(id).ConfigureAwait(false);
@@ -166,10 +185,22 @@ public sealed class EmulatorFixture : IAsyncLifetime
                 continue;
             }
 
+            var from = EventPosition.Earliest;
+            if (next is not null)
+            {
+                var begin = next.TryGetValue(id, out var captured) ? captured : 0;
+                if (properties.LastEnqueuedSequenceNumber < begin)
+                {
+                    continue;
+                }
+
+                from = EventPosition.FromSequenceNumber(begin, isInclusive: true);
+            }
+
             var partition = int.Parse(id, CultureInfo.InvariantCulture);
             var options = new ReadEventOptions { MaximumWaitTime = TimeSpan.FromSeconds(2) };
             var silences = 0;
-            await foreach (var received in consumer.ReadEventsFromPartitionAsync(id, EventPosition.Earliest, options).ConfigureAwait(false))
+            await foreach (var received in consumer.ReadEventsFromPartitionAsync(id, from, options).ConfigureAwait(false))
             {
                 // A null Data is MaximumWaitTime elapsing with nothing handed over. The emulator
                 // delivers a burst and then goes quiet for seconds with events still to come, so one
@@ -186,7 +217,7 @@ public sealed class EmulatorFixture : IAsyncLifetime
                 }
 
                 silences = 0;
-                collected.Add((partition, received.Data));
+                collected.Add((id, partition, received.Data));
                 if (received.Data.SequenceNumber >= properties.LastEnqueuedSequenceNumber)
                 {
                     break;
@@ -194,7 +225,7 @@ public sealed class EmulatorFixture : IAsyncLifetime
             }
         }
 
-        return collected.OrderBy(e => e.Partition).ThenBy(e => e.Data.SequenceNumber).Select(e => e.Data).ToList();
+        return collected.OrderBy(e => e.Partition).ThenBy(e => e.Data.SequenceNumber).Select(e => (e.Id, e.Data)).ToList();
     }
 
     /// <summary>Per partition, the sequence number a reader must begin at to see only what is sent

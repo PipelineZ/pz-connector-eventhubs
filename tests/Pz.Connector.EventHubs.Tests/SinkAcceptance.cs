@@ -9,21 +9,30 @@ namespace Pz.Connector.EventHubs.Tests;
 
 /// <summary>TestKit sink contract. The suite writes a fixed (id Int64, name String) schema; the
 /// connector sends each row as {"id":..,"name":..}, so read-back parses the JSON bodies into the same
-/// two columns. One hub per test-class instance (xunit instantiates per fact), leased on first use so a
-/// fact that never reaches the output does not spend one -- an event hub cannot be emptied, so a hub is
-/// never handed back. No Merge/Replace/Checkpoint outputs: none is declared.</summary>
+/// two columns. One hub for the whole suite -- the namespace admits ten entities in total, far fewer
+/// than one per fact -- with the facts held apart by position rather than by hub: xunit builds the
+/// class once per fact, so the constructor captures where the hub ends before the fact writes and
+/// read-back begins there. No Merge/Replace/Checkpoint outputs: none is declared.</summary>
 [Collection("eventhubs")]
 [Trait("Category", "Docker")]
 public sealed class SinkAcceptance : SinkConnectorAcceptanceTests
 {
+    private static readonly Lock LeaseGate = new();
+    private static string? _hub;
+
     private readonly EmulatorFixture _emulator;
-    private readonly Lazy<string> _hub;
+    private readonly string _hubName;
+    private readonly Dictionary<string, long> _captured;
 
     public SinkAcceptance(EmulatorFixture emulator)
     {
         _emulator = emulator;
         DockerFacts.SkipUnlessDocker();
-        _hub = new Lazy<string>(emulator.LeaseHub);
+        _hubName = LeasedHub(emulator);
+
+        // Blocking, and in the constructor: the capture has to be taken before the fact writes, and
+        // the fact body is the first thing that runs once this returns.
+        _captured = emulator.CaptureNextAsync(_hubName).GetAwaiter().GetResult();
     }
 
     protected override void GateFact() => DockerFacts.SkipUnlessDocker();
@@ -33,11 +42,11 @@ public sealed class SinkAcceptance : SinkConnectorAcceptanceTests
     protected override ConnectorConfig ValidConfig => new(_emulator.ConnectionConfig());
 
     protected override OutputSpec SmallOutput =>
-        new("eventhubs", _hub.Value, "append", "fail_on_change", new Dictionary<string, object?>());
+        new("eventhubs", _hubName, "append", "fail_on_change", new Dictionary<string, object?>());
 
     protected override async ValueTask<IReadOnlyList<RecordBatch>> ReadCommittedAsync(ISinkConnector connector, OutputSpec spec)
     {
-        var events = await _emulator.ReadAllAsync(spec.Output);
+        var events = await _emulator.ReadSinceAsync(spec.Output, _captured);
         if (events.Count == 0)
         {
             return [];
@@ -54,5 +63,15 @@ public sealed class SinkAcceptance : SinkConnectorAcceptanceTests
 
         var schema = new Schema([new Field("id", Int64Type.Default, false), new Field("name", StringType.Default, false)], null);
         return [new RecordBatch(schema, [ids.Build(), names.Build()], events.Count)];
+    }
+
+    /// <summary>The suite's one hub, leased on first use and held for the run: an event hub cannot be
+    /// emptied, so a hub is never handed back.</summary>
+    private static string LeasedHub(EmulatorFixture emulator)
+    {
+        lock (LeaseGate)
+        {
+            return _hub ??= emulator.LeaseHub();
+        }
     }
 }
