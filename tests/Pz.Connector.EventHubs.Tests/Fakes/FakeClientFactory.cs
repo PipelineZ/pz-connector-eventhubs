@@ -137,7 +137,15 @@ internal sealed class FakeWriter(FakeHub hub) : IEventHubWriter
         return Task.CompletedTask;
     }
 
-    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    /// <summary>Times the real handle's dispose would be released -- a session must release it
+    /// exactly once, even across a repeated DisposeAsync call.</summary>
+    public int DisposeCalls { get; private set; }
+
+    public ValueTask DisposeAsync()
+    {
+        DisposeCalls++;
+        return ValueTask.CompletedTask;
+    }
 }
 
 /// <summary>Approximates the real SDK's size accounting well enough to exercise batching logic:
