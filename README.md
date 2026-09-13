@@ -139,7 +139,9 @@ every `append` output, and a sent event cannot be unsent: a failed run's events 
 
 A single row whose event exceeds the service's per-batch size limit (~1 MB) fails the write
 (`PZEH0303`), naming the row index -- no partial batch is silently dropped. The event hub must
-already exist; an unknown one fails at the first send (`PZEH0304`).
+already exist; a send to an unknown one fails with `PZEH0204` where the service reports it
+missing -- the local emulator answers a missing hub with a transient communication failure instead,
+which surfaces as `PZEH0304` on a write and `PZEH0207` on a read.
 
 ## Packaging
 
