@@ -1,0 +1,23 @@
+# Three rows out of a CSV and into the hub the relay project reads. localfiles is builtin, so it
+# needs no `connectors:` entry -- only the packaged connector under test does.
+files:
+  connector: localfiles
+  entities:
+    rows:
+      read:
+        path: data/rows.csv
+        format: csv
+        columns:
+          id: bigint
+          name: varchar
+
+hub:
+  connector: eventhubs
+  auth: connection_string
+  connection_string: ${EVENTHUBS_CONNECTION}
+  entities:
+    seed_out:
+      write:
+        event_hub: e2e-in
+        strategy: append
+        partition_key: id

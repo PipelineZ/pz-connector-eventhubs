@@ -1,0 +1,6 @@
+# Everything `pz restore` and `pz run` write, and what the drain project lands. pz.lock.json pins
+# the version `pz restore --feeds` resolved, which is whatever the local build produced -- CI writes
+# its own from the package it just packed.
+.pz/
+out/
+pz.lock.json

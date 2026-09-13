@@ -1,0 +1,17 @@
+# The namespace the three e2e projects talk to. $Default exists in every emulator namespace and
+# cannot be declared, so "ConsumerGroups" stays empty and the connector reads through $Default.
+services:
+  emulator:
+    image: mcr.microsoft.com/azure-messaging/eventhubs-emulator:latest
+    # The image reads its configuration from this exact path; a mount anywhere else is ignored in
+    # silence and the emulator starts with its baked-in default namespace instead.
+    volumes: ["./config.json:/Eventhubs_Emulator/ConfigFiles/Config.json"]
+    ports: ["5672:5672"]
+    environment: { BLOB_SERVER: azurite, METADATA_SERVER: azurite, ACCEPT_EULA: "Y" }
+    depends_on: [azurite]
+  azurite:
+    # Blob, queue and table together: the emulator's MetadataStore health check fails against a
+    # blob-only Azurite and the emulator container exits before it ever serves AMQP.
+    image: mcr.microsoft.com/azure-storage/azurite:latest
+    command: "azurite -l /data --blobHost 0.0.0.0 --queueHost 0.0.0.0 --tableHost 0.0.0.0 --skipApiVersionCheck"
+    ports: ["10000:10000", "10001:10001", "10002:10002"]

@@ -1,0 +1,17 @@
+# Both directions through the packaged connector. An event hub reads as a feed -- the run lands
+# what sits between the stored per-partition sequence numbers and each partition's last enqueued
+# one -- so the append output it feeds needs `duplicates: accept`: a retried run can re-send a slice.
+hub:
+  connector: eventhubs
+  auth: connection_string
+  connection_string: ${EVENTHUBS_CONNECTION}
+  entities:
+    orders_in:
+      read:
+        event_hub: e2e-in
+    orders_out:
+      write:
+        event_hub: e2e-out
+        strategy: append
+        duplicates: accept
+        partition_key: id

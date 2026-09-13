@@ -1,0 +1,16 @@
+{
+  "UserConfig": {
+    "NamespaceConfig": [
+      {
+        "Type": "EventHub",
+        "Name": "emulatorNs1",
+        "Entities": [
+          { "Name": "e2e-in", "PartitionCount": "2", "ConsumerGroups": [] },
+          { "Name": "e2e-out", "PartitionCount": "2", "ConsumerGroups": [] },
+          { "Name": "e2e-probe", "PartitionCount": "2", "ConsumerGroups": [] }
+        ]
+      }
+    ],
+    "LoggingConfig": { "Type": "File" }
+  }
+}

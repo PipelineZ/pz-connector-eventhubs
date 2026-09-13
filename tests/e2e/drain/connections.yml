@@ -1,0 +1,14 @@
+# The relay's output read back out and landed as a file, so the assertion is a plain CSV. The
+# landing is declared at the sink() call in drain.sql, where the only pipeline writing it lives.
+hub:
+  connector: eventhubs
+  auth: connection_string
+  connection_string: ${EVENTHUBS_CONNECTION}
+  entities:
+    drain_in:
+      read:
+        event_hub: e2e-out
+
+files:
+  connector: localfiles
+  root: out
