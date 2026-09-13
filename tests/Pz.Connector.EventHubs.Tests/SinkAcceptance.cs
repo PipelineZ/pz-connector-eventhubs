@@ -11,29 +11,32 @@ namespace Pz.Connector.EventHubs.Tests;
 /// connector sends each row as {"id":..,"name":..}, so read-back parses the JSON bodies into the same
 /// two columns. One hub for the whole suite -- the namespace admits ten entities in total, far fewer
 /// than one per fact -- with the facts held apart by position rather than by hub: xunit builds the
-/// class once per fact, so the constructor captures where the hub ends before the fact writes and
-/// read-back begins there. No Merge/Replace/Checkpoint outputs: none is declared.</summary>
+/// class once per fact, so each fact captures where the hub ends before it writes and read-back
+/// begins there. No Merge/Replace/Checkpoint outputs: none is declared.</summary>
 [Collection("eventhubs")]
 [Trait("Category", "Docker")]
-public sealed class SinkAcceptance : SinkConnectorAcceptanceTests
+public sealed class SinkAcceptance : SinkConnectorAcceptanceTests, IAsyncLifetime
 {
     private static readonly Lock LeaseGate = new();
     private static string? _hub;
 
     private readonly EmulatorFixture _emulator;
     private readonly string _hubName;
-    private readonly Dictionary<string, long> _captured;
+    private Dictionary<string, long> _captured = [];
 
     public SinkAcceptance(EmulatorFixture emulator)
     {
         _emulator = emulator;
         DockerFacts.SkipUnlessDocker();
         _hubName = LeasedHub(emulator);
-
-        // Blocking, and in the constructor: the capture has to be taken before the fact writes, and
-        // the fact body is the first thing that runs once this returns.
-        _captured = emulator.CaptureNextAsync(_hubName).GetAwaiter().GetResult();
     }
+
+    /// <summary>xunit awaits this after the constructor and before the fact, which is the one place
+    /// the capture both has a service to ask and is still ahead of everything the fact writes.</summary>
+    public async Task InitializeAsync() => _captured = await _emulator.CaptureNextAsync(_hubName);
+
+    /// <summary>Nothing to release: the hub is the run's, not this instance's.</summary>
+    public Task DisposeAsync() => Task.CompletedTask;
 
     protected override void GateFact() => DockerFacts.SkipUnlessDocker();
 
