@@ -1,0 +1,84 @@
+using Apache.Arrow;
+using Apache.Arrow.Types;
+using Azure.Messaging.EventHubs;
+using Pz.Connector.EventHubs.Tests.Fakes;
+using Pz.Connectors.Abstractions;
+
+namespace Pz.Connector.EventHubs.Tests;
+
+/// <summary>Sink surface exercised the way the engine reaches it -- through
+/// <see cref="ISinkConnector.OpenAsync"/> -- so the connector's wiring (ParseOrThrow, the logger
+/// factory) is covered, not just <see cref="EventHubsSink"/> in isolation.</summary>
+public sealed class SinkTests
+{
+    private const string Cs = "Endpoint=sb://localhost;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;";
+
+    private static readonly Schema Schema = new(
+    [
+        new Field("id", Int64Type.Default, true),
+        new Field("name", StringType.Default, true),
+    ], null);
+
+    private static OutputSpec Spec(string mode = "append", Dictionary<string, object?>? options = null) =>
+        new("eventhubs", "h", mode, "fail_on_change", options ?? []);
+
+    private static async Task<ISink> OpenSinkAsync(FakeClientFactory factory, params (string Key, object? Value)[] connection)
+    {
+        var values = new Dictionary<string, object?> { ["auth"] = "connection_string", ["connection_string"] = Cs };
+        foreach (var (key, value) in connection)
+        {
+            values[key] = value;
+        }
+
+        return await ((ISinkConnector)new EventHubsConnector(null, factory)).OpenAsync(new ConnectorConfig(values), CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task Connection_options_reach_the_client_factory()
+    {
+        // Same reason as the source's fact: the producer client the factory builds is where the
+        // transport is applied, so the connection it receives is the only observable point.
+        var factory = new FakeClientFactory { Hubs = { ["h"] = new FakeHub() } };
+        var sink = await OpenSinkAsync(factory, ("consumer_group", "cg"), ("transport", "amqp_websockets"));
+
+        await using var session = await sink.BeginWriteAsync(Spec(), Schema, CancellationToken.None);
+
+        Assert.NotNull(factory.LastWriterConfig);
+        Assert.Equal("cg", factory.LastWriterConfig!.ConsumerGroup);
+        Assert.Equal(EventHubsTransportType.AmqpWebSockets, factory.LastWriterConfig.Transport);
+    }
+
+    [Fact]
+    public async Task Abort_semantics_is_none()
+    {
+        var sink = await OpenSinkAsync(new FakeClientFactory { Hubs = { ["h"] = new FakeHub() } });
+
+        Assert.Equal(AbortSemantics.None, sink.AbortSemantics);
+    }
+
+    [Fact]
+    public async Task There_is_no_native_copy()
+    {
+        var sink = await OpenSinkAsync(new FakeClientFactory { Hubs = { ["h"] = new FakeHub() } });
+
+        Assert.False(sink.TryGetNativeCopy(Spec(), out var copy));
+        Assert.Null(copy);
+    }
+
+    [Fact]
+    public async Task Replace_mode_is_refused_as_a_named_config_error()
+    {
+        var sink = await OpenSinkAsync(new FakeClientFactory { Hubs = { ["h"] = new FakeHub() } });
+
+        var ex = await Assert.ThrowsAsync<PzConnectorException>(() =>
+            sink.BeginWriteAsync(Spec("replace"), Schema, CancellationToken.None).AsTask());
+
+        Assert.StartsWith("PZEH0301:", ex.Message);
+        Assert.False(ex.IsTransient);
+        Assert.Contains("append-only", ex.Message);
+    }
+
+    // An unregistered hub is not a config error the sink can see at BeginWriteAsync (writer
+    // construction never contacts the service): see WriteSessionTests.
+    // Unknown_hub_fails_the_first_write_batch_not_begin_write for that path.
+}

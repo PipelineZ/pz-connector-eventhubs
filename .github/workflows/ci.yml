@@ -1,0 +1,108 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet build Pz.Connector.EventHubs.slnx -c Release
+      # ubuntu has docker, so the emulator-backed facts run; windows cannot pull Linux images, so it
+      # runs everything that is not emulator-backed.
+      - if: runner.os == 'Linux'
+        run: dotnet test Pz.Connector.EventHubs.slnx -c Release --no-build --blame-hang --blame-hang-timeout 10m --blame-hang-dump-type mini
+      - if: runner.os == 'Windows'
+        run: dotnet test Pz.Connector.EventHubs.slnx -c Release --no-build --filter "Category!=Docker" --blame-hang --blame-hang-timeout 10m --blame-hang-dump-type mini
+
+  # The other half of the proof: a stranger declares the connector by package id, runs `pz restore`,
+  # and pz spawns the native binary. The suite above never touches pz's resolver, materializer or
+  # process host; this job proves the publish, the generated manifest and the PCP handshake fit
+  # together against the released pz, with a live emulator on both ends.
+  pack-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+      - name: Publish the host RID and pack
+        run: |
+          set -euo pipefail
+          # A separate `restore -r` before `publish -r --no-restore` is required on a cold NuGet
+          # cache: the restore folded into `publish -r` alone does not pull the RID-specific packs
+          # this Native AOT build needs (NETSDK1112), even though the same restore run standalone does.
+          dotnet restore src/Pz.Connector.EventHubs -r linux-x64
+          dotnet publish src/Pz.Connector.EventHubs -c Release -r linux-x64 --no-restore
+          dotnet pack src/Pz.Connector.EventHubs -c Release -o packages
+          ls packages
+          VERSION="$(ls packages/Pz.Connector.EventHubs.*.nupkg | sed -E 's|.*/Pz\.Connector\.EventHubs\.(.*)\.nupkg|\1|')"
+          echo "PKG_VERSION=${VERSION}" >> "$GITHUB_ENV"
+          PKG="packages/Pz.Connector.EventHubs.${VERSION}.nupkg"
+          unzip -p "${PKG}" pz.connector.json | tee manifest.json
+          grep -q '"runtime": "process"' manifest.json
+          grep -q '"name": "eventhubs"' manifest.json
+          grep -q '"SyncState"' manifest.json
+          # The connector resolves nothing against the project directory, so pz must not be told to
+          # hand it one: an anchor that appears here is a packaging mistake, not a capability.
+          ! grep -q '"projectDirectoryAnchor": true' manifest.json
+          unzip -l "${PKG}" | grep -q ' icon.png$'
+          unzip -l "${PKG}" | grep -q ' README.md$'
+      - name: Start the emulator
+        run: |
+          set -euo pipefail
+          docker compose -f tests/e2e/emulator/docker-compose.yml up -d
+          for i in $(seq 1 90); do
+            docker compose -f tests/e2e/emulator/docker-compose.yml logs emulator 2>&1 \
+              | grep -q "Emulator Service is Successfully Up!" && break
+            sleep 1
+          done
+          # One health-check retry before the namespace is up is normal; never reaching the line at
+          # all is not, and the loop above would otherwise fall through into an unexplained failure.
+          docker compose -f tests/e2e/emulator/docker-compose.yml logs emulator 2>&1 \
+            | grep -q "Emulator Service is Successfully Up!"
+      - name: Install pz, restore from the local feed, run, conformance-test
+        env:
+          EVENTHUBS_CONNECTION: Endpoint=sb://localhost;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;
+        run: |
+          set -euo pipefail
+          dotnet tool install --global pz --version 0.6.1
+          # Three projects in order: seed a hub from a CSV, relay it hub-to-hub, drain it to a file.
+          for p in seed relay drain; do
+            (
+              cd "tests/e2e/${p}"
+              sed -i "s/0.0.0-PLACEHOLDER/${PKG_VERSION}/" project.yml
+              pz restore --feeds "${GITHUB_WORKSPACE}/packages"
+              test -f ".pz/packages/Pz.Connector.EventHubs/${PKG_VERSION}/native/Pz.Connector.EventHubs"
+              pz run
+            )
+          done
+          # Three rows in, three rows back out.
+          cat tests/e2e/drain/out/result/*.csv | tee out.csv
+          test "$(tail -n +2 out.csv | grep -c .)" -eq 3
+          grep -q "^2,bob$" out.csv
+          # A second relay run lands nothing new (the stored sequence numbers advanced) and stays green.
+          ( cd tests/e2e/relay && pz run )
+          pz connector test "tests/e2e/relay/.pz/packages/Pz.Connector.EventHubs/${PKG_VERSION}" \
+            --config tests/e2e/probe.yml | tee report.txt
+          ! grep -q '^FAIL' report.txt
+          grep -q sync-state-roundtrip report.txt

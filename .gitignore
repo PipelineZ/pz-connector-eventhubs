@@ -1,0 +1,8 @@
+bin/
+obj/
+.pz/
+packages/
+*.user
+.vs/
+.superpowers/
+*.nupkg

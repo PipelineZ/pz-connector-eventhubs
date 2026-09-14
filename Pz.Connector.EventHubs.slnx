@@ -1,0 +1,4 @@
+<Solution>
+  <Folder Name="/src/"><Project Path="src/Pz.Connector.EventHubs/Pz.Connector.EventHubs.csproj" /></Folder>
+  <Folder Name="/tests/"><Project Path="tests/Pz.Connector.EventHubs.Tests/Pz.Connector.EventHubs.Tests.csproj" /></Folder>
+</Solution>

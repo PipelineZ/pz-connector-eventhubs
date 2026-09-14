@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Description>Azure Event Hubs source (sequence-number-resumed feed) and sink (append-only) connector for PipelineZ (pz), served out of process.</Description>
+    <!-- Consumed as a NuGet package, the SDK's props cannot turn PublishAot on by themselves;
+         the project body must, or publish silently stages a CoreCLR layout (PZSDK005). -->
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Pz.Connectors.Sdk" Version="0.6.1" />
+    <PackageReference Include="Pz.Connectors.Abstractions" Version="0.6.1" />
+    <PackageReference Include="Azure.Messaging.EventHubs" Version="5.12.2" />
+    <PackageReference Include="Azure.Identity" Version="1.21.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pz.Connector.EventHubs.Tests" />
+  </ItemGroup>
+</Project>

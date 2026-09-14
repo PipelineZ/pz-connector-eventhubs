@@ -1,0 +1,10 @@
+connection:
+  # Interpolated from the environment by `pz connector test --config`, the same way connections.yml
+  # is: the CI job exports EVENTHUBS_CONNECTION for both.
+  auth: connection_string
+  connection_string: ${EVENTHUBS_CONNECTION}
+read:
+  dataset: e2e-in
+write:
+  output: e2e-probe
+  mode: append
