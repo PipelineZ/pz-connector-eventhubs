@@ -38,6 +38,10 @@ public sealed class SinkAcceptance : SinkConnectorAcceptanceTests, IAsyncLifetim
     /// <summary>Nothing to release: the hub is the run's, not this instance's.</summary>
     public Task DisposeAsync() => Task.CompletedTask;
 
+    /// <summary>The emulator admits only about a hundred events a second, so the suite's 20,000-row default
+    /// cannot finish inside its read-back window; the fact still exercises four write calls.</summary>
+    protected override int LargeBatchRows => 400;
+
     protected override void GateFact() => DockerFacts.SkipUnlessDocker();
 
     protected override ISinkConnector CreateSink() => new EventHubsConnector();
