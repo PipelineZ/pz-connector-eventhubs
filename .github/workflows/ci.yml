@@ -85,7 +85,7 @@ jobs:
           EVENTHUBS_CONNECTION: Endpoint=sb://localhost;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;
         run: |
           set -euo pipefail
-          dotnet tool install --global pz --version 0.11.0-preview.2
+          dotnet tool install --global pz --version 0.11.0-preview.4
           # Three projects in order: seed a hub from a CSV, relay it hub-to-hub, drain it to a file.
           for p in seed relay drain; do
             (
