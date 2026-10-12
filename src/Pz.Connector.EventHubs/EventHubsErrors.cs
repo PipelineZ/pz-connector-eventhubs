@@ -44,6 +44,13 @@ internal static class EventHubsErrors
             return already;
         }
 
+        // The client library retries a busy service internally and only surfaces the failure once its
+        // own retries are spent, so this counts the throttles that reached the connector.
+        if (ex is EventHubsException { Reason: EventHubsException.FailureReason.ServiceBusy })
+        {
+            ConnectorStats.Current.AddThrottled(1);
+        }
+
         var detail = ex is EventHubsException eh ? $"{eh.Reason} -- {eh.Message}" : ex.Message;
         return new PzConnectorException(redactor.Redact($"{code}: eventhubs: {context}: {detail}"), IsTransient(ex), innerException: ex);
     }

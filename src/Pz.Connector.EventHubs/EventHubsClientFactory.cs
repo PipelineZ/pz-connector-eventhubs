@@ -38,6 +38,9 @@ internal interface IEventBatch : IDisposable
 {
     int Count { get; }
     long MaximumSizeInBytes { get; }
+
+    /// <summary>Bytes the batch will put on the wire, as the client library accounts them.</summary>
+    long SizeInBytes { get; }
     bool TryAdd(OutgoingEvent e);
 }
 
@@ -201,6 +204,7 @@ internal sealed class EventHubsClientFactory : IEventHubsClientFactory
         public EventDataBatch Inner => inner;
         public int Count => inner.Count;
         public long MaximumSizeInBytes => inner.MaximumSizeInBytes;
+        public long SizeInBytes => inner.SizeInBytes;
 
         public bool TryAdd(OutgoingEvent e)
         {

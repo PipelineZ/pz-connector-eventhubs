@@ -9,7 +9,7 @@ public sealed class ConnectorInfoTests
     {
         var connector = new EventHubsConnector();
         Assert.Equal("eventhubs", connector.Info.Name);
-        Assert.Equal(ConnectorCapabilities.SyncState, connector.Capabilities);
+        Assert.Equal(ConnectorCapabilities.SyncState | ConnectorCapabilities.ReportsStats, connector.Capabilities);
         Assert.Equal(ProtocolVersion.Major, connector.Info.ProtocolMajor);
     }
 }

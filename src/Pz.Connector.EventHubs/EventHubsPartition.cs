@@ -30,6 +30,8 @@ internal sealed class EventHubsPartition(
     public async IAsyncEnumerable<RecordBatch> ReadAsync(BatchOptions options, [EnumeratorCancellation] CancellationToken ct)
     {
         _candidate = null;
+        // Captured once: the iterator resumes on the consumer's flow, which may not carry the operation's handle.
+        var stats = ConnectorStats.Current;
         var redactor = connection.Redactor;
         var hub = dataset.EventHub;
         var context = $"event hub '{hub}' in namespace '{connection.NamespaceHost}'";
@@ -75,9 +77,11 @@ internal sealed class EventHubsPartition(
                 try
                 {
                     events = await partition.ReceiveAsync(ReceiveBatchSize, ReceiveWait, ct).ConfigureAwait(false);
+                    ReportReceive(stats, events);
                 }
                 catch (Exception ex) when (ex is not PzConnectorException and not OperationCanceledException)
                 {
+                    stats.AddRequests(1);
                     throw EventHubsErrors.Wrap(ex, redactor, Codes.ReceiveFailed, $"{context} partition {plan.PartitionId}: receiving");
                 }
 
@@ -131,5 +135,23 @@ internal sealed class EventHubsPartition(
         }
 
         _candidate = new SequenceToken(connection.NamespaceHost, hub, plans.ToDictionary(p => p.PartitionId, p => p.Next)).Serialize();
+    }
+
+    private static void ReportReceive(IConnectorStats stats, IReadOnlyList<ReceivedEvent> events)
+    {
+        stats.AddRequests(1);
+        if (events.Count == 0)
+        {
+            return;
+        }
+
+        long bytes = 0;
+        foreach (var e in events)
+        {
+            bytes += e.Body.Length;
+        }
+
+        stats.AddWireBytes(bytes);
+        stats.AddExtra("eventhubs.events", events.Count);
     }
 }
