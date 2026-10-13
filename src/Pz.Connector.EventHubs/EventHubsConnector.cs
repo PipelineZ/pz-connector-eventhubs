@@ -27,7 +27,7 @@ public sealed class EventHubsConnector : IConnector, ISourceConnector, ISinkConn
         typeof(EventHubsConnector).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.0.0",
         ProtocolVersion.Major);
 
-    public ConnectorCapabilities Capabilities => ConnectorCapabilities.SyncState;
+    public ConnectorCapabilities Capabilities => ConnectorCapabilities.SyncState | ConnectorCapabilities.ReportsStats;
 
     public string ConnectionConfigSchema => """
         { "type": "object", "required": ["auth"], "properties": {

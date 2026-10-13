@@ -147,13 +147,21 @@ internal sealed class EventHubsWriteSession : ISinkWriteSession
 
     private async Task SendAsync(IEventBatch open, CancellationToken ct)
     {
+        var stats = ConnectorStats.Current;
+        var size = open.SizeInBytes;
         try
         {
             await _writer.SendAsync(open, ct).ConfigureAwait(false);
+            stats.AddWireBytes(size);
+            stats.AddExtra("eventhubs.batches", 1);
         }
         catch (Exception ex) when (ex is not PzConnectorException and not OperationCanceledException)
         {
             throw Classify(ex, "sending");
+        }
+        finally
+        {
+            stats.AddRequests(1);
         }
     }
 

@@ -205,6 +205,8 @@ internal sealed class FakeBatch(string? partitionKey, long maxBatchBytes) : IEve
 
     public long MaximumSizeInBytes => maxBatchBytes;
 
+    public long SizeInBytes => _sizeInBytes;
+
     public bool TryAdd(OutgoingEvent e)
     {
         ObjectDisposedException.ThrowIf(Disposed, this);

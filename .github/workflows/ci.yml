@@ -85,7 +85,7 @@ jobs:
           EVENTHUBS_CONNECTION: Endpoint=sb://localhost;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;
         run: |
           set -euo pipefail
-          dotnet tool install --global pz --version 0.6.1
+          dotnet tool install --global pz --version 0.11.0
           # Three projects in order: seed a hub from a CSV, relay it hub-to-hub, drain it to a file.
           for p in seed relay drain; do
             (
@@ -94,6 +94,14 @@ jobs:
               pz restore --feeds "${GITHUB_WORKSPACE}/packages"
               test -f ".pz/packages/Pz.Connector.EventHubs/${PKG_VERSION}/native/Pz.Connector.EventHubs"
               pz run
+              # Every eventhubs node the project ran reports remote stats: seed writes once, relay
+              # reads and writes, drain reads once. Assert the exact node count so a node that stops
+              # reporting cannot pass vacuously.
+              case "${p}" in relay) expected=2 ;; *) expected=1 ;; esac
+              run_dir="$(ls -td .pz/runs/*/ | head -n1)"
+              jq -e --argjson n "${expected}" \
+                '[.nodes[] | select(.connector=="eventhubs")] | (length == $n) and (map(.remote.requests > 0) | all)' \
+                "${run_dir}run_results.json"
             )
           done
           # Three rows in, three rows back out.
