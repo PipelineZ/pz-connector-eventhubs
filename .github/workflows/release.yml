@@ -102,6 +102,7 @@ jobs:
           unzip -p "${PKG}" pz.connector.json | tee manifest.json
           grep -q '"runtime": "process"' manifest.json
           grep -q '"name": "eventhubs"' manifest.json
+          tr -d ' \n' < manifest.json | grep -q '"ambientIdentity":\["azure"\]'
           grep -q '"SyncState"' manifest.json
           ! grep -q 'projectDirectoryAnchor' manifest.json
           LISTING="$(unzip -l "${PKG}")"

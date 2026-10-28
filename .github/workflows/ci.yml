@@ -85,14 +85,17 @@ jobs:
           EVENTHUBS_CONNECTION: Endpoint=sb://localhost;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;
         run: |
           set -euo pipefail
-          dotnet tool install --global pz --version 0.11.0
+          dotnet tool install --global pz --version 0.14.0
           # Three projects in order: seed a hub from a CSV, relay it hub-to-hub, drain it to a file.
           for p in seed relay drain; do
             (
               cd "tests/e2e/${p}"
               sed -i "s/0.0.0-PLACEHOLDER/${PKG_VERSION}/" project.yml
-              pz restore --feeds "${GITHUB_WORKSPACE}/packages"
+              pz restore --feeds "${GITHUB_WORKSPACE}/packages" | tee restore.log
               test -f ".pz/packages/Pz.Connector.EventHubs/${PKG_VERSION}/native/Pz.Connector.EventHubs"
+              # Ambient Azure identity reaches the connector process only because the package declares it.
+              jq -e '.ambientIdentity == ["azure"]' ".pz/packages/Pz.Connector.EventHubs/${PKG_VERSION}/pz.connector.json"
+              grep -q "receives host identity: azure" restore.log
               pz run
               # Every eventhubs node the project ran reports remote stats: seed writes once, relay
               # reads and writes, drain reads once. Assert the exact node count so a node that stops

@@ -6,10 +6,14 @@
          the project body must, or publish silently stages a CoreCLR layout (PZSDK005). -->
     <PublishAot>true</PublishAot>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- auth: credential_chain and managed_identity resolve through Azure.Identity in this process.
+         pz 0.14+ forwards the Azure identity variables (Container Apps, App Service, AKS workload
+         identity, a service principal in the environment) only to a package that declares them. -->
+    <PzAmbientIdentity>azure</PzAmbientIdentity>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Pz.Connectors.Sdk" Version="0.11.0" />
-    <PackageReference Include="Pz.Connectors.Abstractions" Version="0.11.0" />
+    <PackageReference Include="Pz.Connectors.Sdk" Version="0.14.0" />
+    <PackageReference Include="Pz.Connectors.Abstractions" Version="0.14.0" />
     <PackageReference Include="Azure.Messaging.EventHubs" Version="5.12.2" />
     <PackageReference Include="Azure.Identity" Version="1.21.0" />
   </ItemGroup>
