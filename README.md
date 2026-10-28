@@ -42,6 +42,12 @@ connection string; `service_principal` needs `namespace`, `tenant_id`, `client_i
 need `namespace`. A field belonging to a different shape is refused, so one connection never says
 two things, and every problem in the block is reported at once (`PZEH0101`).
 
+`credential_chain` and `managed_identity` need **pz 0.14.0 or newer** wherever the identity lives in
+environment variables (Container Apps, App Service, AKS workload identity, a service principal set
+through `AZURE_CLIENT_SECRET`): pz starts the connector with a cleared environment and, from 0.14.0,
+forwards the Azure identity variables this package declares (`pz restore` shows `receives host
+identity: azure`). An Azure VM's metadata endpoint needs no variable and works with any pz.
+
 The connection string is namespace-level: the event hub is the entity name in `connections.yml`,
 never an `EntityPath` component. `idle_timeout` bounds silence on a read -- an unfinished partition
 that delivers no event for that long fails transiently and the engine retries the node, leaving the
