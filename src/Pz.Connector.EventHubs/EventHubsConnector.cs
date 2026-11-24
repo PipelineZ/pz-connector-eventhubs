@@ -7,7 +7,7 @@ namespace Pz.Connector.EventHubs;
 
 /// <summary>Azure Event Hubs for pz: an event hub is a feed-shaped dataset resumed from per-partition
 /// sequence numbers the engine stores as the dataset's sync-state token; a sink output is an
-/// append-only send. Capabilities: SyncState only -- one token per dataset means one pz partition
+/// append-only send. Capabilities: SyncState, plus NestedTypes for the sink's JSON body -- one token per dataset means one pz partition
 /// per dataset, and there is no SQL fragment DuckDB could scan a namespace with.</summary>
 public sealed class EventHubsConnector : IConnector, ISourceConnector, ISinkConnector
 {
@@ -27,7 +27,8 @@ public sealed class EventHubsConnector : IConnector, ISourceConnector, ISinkConn
         typeof(EventHubsConnector).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.0.0",
         ProtocolVersion.Major);
 
-    public ConnectorCapabilities Capabilities => ConnectorCapabilities.SyncState | ConnectorCapabilities.ReportsStats;
+    public ConnectorCapabilities Capabilities =>
+        ConnectorCapabilities.SyncState | ConnectorCapabilities.ReportsStats | ConnectorCapabilities.NestedTypes;
 
     public string ConnectionConfigSchema => """
         { "type": "object", "required": ["auth"], "properties": {

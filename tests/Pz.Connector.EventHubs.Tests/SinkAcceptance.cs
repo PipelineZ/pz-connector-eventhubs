@@ -51,6 +51,8 @@ public sealed class SinkAcceptance : SinkConnectorAcceptanceTests, IAsyncLifetim
     protected override OutputSpec SmallOutput =>
         new("eventhubs", _hubName, "append", "fail_on_change", new Dictionary<string, object?>());
 
+    protected override OutputSpec? NestedOutput => SmallOutput;
+
     protected override async ValueTask<IReadOnlyList<RecordBatch>> ReadCommittedAsync(ISinkConnector connector, OutputSpec spec)
     {
         var events = await _emulator.ReadSinceAsync(spec.Output, _captured);

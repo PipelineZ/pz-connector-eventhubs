@@ -12,6 +12,8 @@ internal sealed record EventHubsOutputConfig(
     string EventHub, string? BodyColumn, string? PartitionKeyColumn, IReadOnlyList<string> PropertyColumns, string? ContentType)
 {
     private static readonly string[] KnownKeys = ["event_hub", "body", "partition_key", "properties", "content_type"];
+    // PartitionKeyTypes admits flat values only: the key decides which partition an event lands on and
+    // is spelled from the cell's text, so a struct, list or map must be refused by name here.
     private static readonly ArrowTypeId[] PartitionKeyTypes = [ArrowTypeId.String, ArrowTypeId.Int32, ArrowTypeId.Int64];
     private static readonly ArrowTypeId[] PropertyTypes =
         [ArrowTypeId.String, ArrowTypeId.Int32, ArrowTypeId.Int64, ArrowTypeId.Double, ArrowTypeId.Boolean, ArrowTypeId.Date32, ArrowTypeId.Timestamp];
@@ -23,6 +25,7 @@ internal sealed record EventHubsOutputConfig(
     [
         ArrowTypeId.String, ArrowTypeId.Int32, ArrowTypeId.Int64, ArrowTypeId.Double,
         ArrowTypeId.Decimal128, ArrowTypeId.Boolean, ArrowTypeId.Date32, ArrowTypeId.Timestamp,
+        ArrowTypeId.Struct, ArrowTypeId.List, ArrowTypeId.FixedSizeList, ArrowTypeId.Map,
     ];
 
     public static EventHubsOutputConfig? Parse(OutputSpec spec, List<string> errors)
