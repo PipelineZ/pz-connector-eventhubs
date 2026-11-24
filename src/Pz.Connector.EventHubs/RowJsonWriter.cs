@@ -4,6 +4,7 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using Apache.Arrow;
 using Apache.Arrow.Types;
+using Pz.Connectors.Abstractions;
 
 namespace Pz.Connector.EventHubs;
 
@@ -65,11 +66,22 @@ internal sealed class RowJsonWriter(Schema schema, IReadOnlyList<int> columns)
             case BooleanArray a: writer.WriteBooleanValue(a.GetValue(row)!.Value); break;
             case MapArray a:
             {
+                // Two keys with the same text would repeat one property, which JSON parsers resolve differently.
                 var entries = a.KeyValues;
+                var seen = new HashSet<string>(StringComparer.Ordinal);
                 writer.WriteStartObject();
                 for (var i = a.ValueOffsets[row]; i < a.ValueOffsets[row + 1]; i++)
                 {
-                    writer.WritePropertyName(ArrowScalars.Format(entries.Fields[0], i)!);
+                    var key = ArrowScalars.Format(entries.Fields[0], i)
+                        ?? throw new PzConnectorException("a map entry has a null key, which a JSON object cannot hold", isTransient: false);
+                    if (!seen.Add(key))
+                    {
+                        throw new PzConnectorException(
+                            "a map holds two entries whose keys have the same text, which a JSON object cannot hold -- make the keys distinct in the pipeline",
+                            isTransient: false);
+                    }
+
+                    writer.WritePropertyName(key);
                     WriteValue(writer, entries.Fields[1], i);
                 }
 
