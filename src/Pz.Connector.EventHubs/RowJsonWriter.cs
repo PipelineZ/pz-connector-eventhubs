@@ -4,6 +4,7 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using Apache.Arrow;
 using Apache.Arrow.Types;
+using Pz.Connectors.Abstractions;
 
 namespace Pz.Connector.EventHubs;
 
@@ -31,29 +32,102 @@ internal sealed class RowJsonWriter(Schema schema, IReadOnlyList<int> columns)
             {
                 var column = batch.Column(columns[c]);
                 writer.WritePropertyName(_names[c]);
-                if (column.IsNull(row))
-                {
-                    writer.WriteNullValue();
-                    continue;
-                }
-
-                switch (column)
-                {
-                    case Int32Array a: writer.WriteNumberValue(a.GetValue(row)!.Value); break;
-                    case Int64Array a: writer.WriteNumberValue(a.GetValue(row)!.Value); break;
-                    case DoubleArray a:
-                        var d = a.GetValue(row)!.Value;
-                        if (double.IsFinite(d)) writer.WriteNumberValue(d); else writer.WriteNullValue();
-                        break;
-                    case BooleanArray a: writer.WriteBooleanValue(a.GetValue(row)!.Value); break;
-                    default: writer.WriteStringValue(ArrowScalars.Format(column, row)); break;
-                }
+                WriteValue(writer, column, row);
             }
 
             writer.WriteEndObject();
         }
 
         return _buffer.ToArray();
+    }
+
+    /// <summary>One cell, at any depth. Leaves are spelled exactly as a flat column's are (Decimal128
+    /// as a string, timestamps as microsecond ISO-8601 UTC, non-finite doubles as null), so a field
+    /// inside a struct reads the same as the same type at the top level; a struct is an object, a
+    /// list an array, a map an object keyed by the key's text. Offsets are read the way the Arrow
+    /// layout stores them: list and map offsets are absolute into the child, a fixed-size list
+    /// starts at (array offset + row) * size.</summary>
+    private static void WriteValue(Utf8JsonWriter writer, IArrowArray column, int row)
+    {
+        if (column.IsNull(row))
+        {
+            writer.WriteNullValue();
+            return;
+        }
+
+        switch (column)
+        {
+            case Int32Array a: writer.WriteNumberValue(a.GetValue(row)!.Value); break;
+            case Int64Array a: writer.WriteNumberValue(a.GetValue(row)!.Value); break;
+            case DoubleArray a:
+                var d = a.GetValue(row)!.Value;
+                if (double.IsFinite(d)) writer.WriteNumberValue(d); else writer.WriteNullValue();
+                break;
+            case BooleanArray a: writer.WriteBooleanValue(a.GetValue(row)!.Value); break;
+            case MapArray a:
+            {
+                // Two keys with the same text would repeat one property, which JSON parsers resolve differently.
+                var entries = a.KeyValues;
+                var seen = new HashSet<string>(StringComparer.Ordinal);
+                writer.WriteStartObject();
+                for (var i = a.ValueOffsets[row]; i < a.ValueOffsets[row + 1]; i++)
+                {
+                    var key = ArrowScalars.Format(entries.Fields[0], i)
+                        ?? throw new PzConnectorException("a map entry has a null key, which a JSON object cannot hold", isTransient: false);
+                    if (!seen.Add(key))
+                    {
+                        throw new PzConnectorException(
+                            "a map holds two entries whose keys have the same text, which a JSON object cannot hold -- make the keys distinct in the pipeline",
+                            isTransient: false);
+                    }
+
+                    writer.WritePropertyName(key);
+                    WriteValue(writer, entries.Fields[1], i);
+                }
+
+                writer.WriteEndObject();
+                break;
+            }
+
+            case ListArray a:
+                writer.WriteStartArray();
+                for (var i = a.ValueOffsets[row]; i < a.ValueOffsets[row + 1]; i++)
+                {
+                    WriteValue(writer, a.Values, i);
+                }
+
+                writer.WriteEndArray();
+                break;
+            case FixedSizeListArray a:
+            {
+                var size = ((FixedSizeListType)a.Data.DataType).ListSize;
+                var start = (a.Offset + row) * size;
+                writer.WriteStartArray();
+                for (var i = start; i < start + size; i++)
+                {
+                    WriteValue(writer, a.Values, i);
+                }
+
+                writer.WriteEndArray();
+                break;
+            }
+
+            case StructArray a:
+            {
+                var fields = ((StructType)a.Data.DataType).Fields;
+                writer.WriteStartObject();
+                for (var k = 0; k < fields.Count; k++)
+                {
+                    writer.WritePropertyName(fields[k].Name);
+                    WriteValue(writer, a.Fields[k], row);
+                }
+
+                writer.WriteEndObject();
+                break;
+            }
+
+            default: writer.WriteStringValue(ArrowScalars.Format(column, row)); break;
+        }
     }
 }
 

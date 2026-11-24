@@ -123,7 +123,7 @@ an earlier run already delivered.
         event_hub: order-events              # optional; defaults to the entity name
         strategy: append                     # the only strategy event hubs support
         body: payload                        # optional varchar column sent verbatim; omit for whole-row JSON
-        partition_key: region                # optional column (varchar, integer, or bigint)
+        partition_key: region                # optional column (varchar, integer, or bigint; never a struct, list or map)
         properties: [source, schema_version] # optional columns sent as application properties
         content_type: application/json       # optional
 ```
@@ -131,7 +131,9 @@ an earlier run already delivered.
 Without `body:`, each row becomes a JSON object of every column not named in `partition_key:` or
 `properties:`: integers and doubles as numbers, decimals as strings (every digit of a 38-digit
 value), booleans, dates as `yyyy-MM-dd`, timestamps as `yyyy-MM-ddTHH:mm:ss.ffffffZ`, nulls as
-`null`. A column of any other type is refused when the write starts, before an event is sent,
+`null`. A struct column is a JSON object, a list or fixed-size list a JSON array and a map an object
+keyed by the key's text, to any depth, with every leaf spelled as above (so a decimal inside a struct
+is a string too). A column of any other type is refused when the write starts, before an event is sent,
 naming the column (`PZEH0302`): name a `body:` column, or drop it from the pipeline's projection.
 The key and the properties are therefore not repeated inside the body; to have a column in both
 places, project it twice under two names and point `partition_key:` at the copy. With `body:` set,
